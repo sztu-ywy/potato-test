@@ -1,0 +1,111 @@
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"image"
+	"image/color"
+	"os"
+
+	"github.com/uozi-tech/cosy/logger"
+	"golang.org/x/image/draw"
+)
+
+var colorhead = []byte{
+	0xFF, 0xFF, 0xFF, 0xFF,
+	0x00, 0x00, 0x00, 0xff,
+}
+
+func main1() {
+	qrcodepath := "./statics/images/123456.png" //图片的路径
+	imageLvglImage, err := CompressImage(qrcodepath)
+	if err != nil {
+		logger.Error(err)
+	}
+
+	imageDatas := append(colorhead, imageLvglImage...)
+
+	// 打印转化结果
+	for i := 0; i < len(imageDatas); i++ {
+		fmt.Print(imageDatas[i])
+		fmt.Print(",")
+		if i%30 == 0 && i != 0 {
+			fmt.Println()
+		}
+	}
+
+}
+
+func CompressImage(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		logger.Error(err)
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		logger.Error(err)
+	}
+	if img == nil {
+		logger.Debug("img 为空")
+	}
+	// width := img.Bounds().Size().X * 2  // 将图片宽度缩放为原来的两倍
+	// height := img.Bounds().Size().Y * 2 // 将图片高度缩放为原来的两倍
+	width := 56
+	height := 56
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.BiLinear.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Src, nil)
+
+	bytes := erzhihua(dst)
+	logger.Debug(len(bytes.Bytes()))
+	logger.Debug("图片二值化完成")
+
+	logger.Debug("图片缩放完成")
+	return bytes.Bytes(), err
+}
+func erzhihua(dst *image.RGBA) bytes.Buffer {
+	// 3. 二值化处理
+	// threshold := uint32(128 * 0xFFFF / 0xFF) // 转换为16位颜色空间阈值
+	var buffer bytes.Buffer
+	for y := 0; y < 56; y++ {
+		byteValue := byte(0)
+		bitPosition := 7 // 高位在前
+
+		// 识别每个像素，每个亮度
+		for x := 0; x < 56; x++ {
+			// 获取像素颜色
+			r, g, b, _ := dst.At(x, y).RGBA()
+
+			// 计算亮度
+			luminance := (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b)) / 0xFFFF * 255
+
+			// 二值化,如果luminance亮度值大于128，则为二进制1，否则为0
+			if luminance > 128 {
+				byteValue |= 1 << uint(bitPosition)
+			}
+			// 移动位指针，将每8个像素点写出一个字节
+			bitPosition--
+			if bitPosition < 0 {
+
+				buffer.WriteByte(^byteValue)
+				byteValue = 0
+				bitPosition = 7
+			}
+		}
+	}
+	// 56*56/8=392
+	logger.Debug("长度->", len(buffer.Bytes()))
+	return buffer
+}
+func PaletteToBytes(palette []color.RGBA) []byte {
+	byteSlice := make([]byte, len(palette)*4)
+	for i, c := range palette {
+		offset := i * 4
+		byteSlice[offset] = c.R
+		byteSlice[offset+1] = c.G
+		byteSlice[offset+2] = c.B
+		byteSlice[offset+3] = c.A
+	}
+	return byteSlice
+}

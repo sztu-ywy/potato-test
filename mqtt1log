@@ -1,0 +1,92 @@
+#OTA认证
+->POST:
+POST请求体  {"version":2,"language":"zh-CN","flash_size":16777216,"minimum_free_heap_size":8441000,"mac_address":"10:51:db:72:70:a8","uuid":"3c05ed7d-eae5-41ec-aebf-c284c9ddce90","chip_model_name":"esp32s3","chip_info":{"model":9,"cores":2,"revision":2,"features":18},"application":{"name":"xiaozhi","version":"2.1.0","compile_time":"Jul 15 2025T15:28:46Z","idf_version":"v5.3.1-dirty","elf_sha256":"814e6a564840b1e44f1799b3a7f3bf0410279f6121d5edd107deebcf1014e6ae"},"partition_table": [{"label":"nvs","type":1,"subtype":2,"address":36864,"size":16384},{"label":"otadata","type":1,"subtype":0,"address":53248,"size":8192},{"label":"phy_init","type":1,"subtype":1,"address":61440,"size":4096},{"label":"model","type":1,"subtype":130,"address":65536,"size":983040},{"label":"ota_0","type":0,"subtype":16,"address":1048576,"size":6291456},{"label":"ota_1","type":0,"subtype":17,"address":7340032,"size":6291456}],"ota":{"label":"ota_0"},"board":{"type":"tudouzi","name":"tudouzi","revision":"ML307R-DL-MBRH0S01","carrier":"CHINA MOBILE","csq":"26","imei":"460240429759840","iccid":"89860842102481934840","cereg":{"stat":1,"tac":"2634","ci":"08E636C3","AcT":7}}}
+响应
+I (3092) Ota: data: {"mqtt":{"endpoint":"mqtt.xiaozhi.me","client_id":"GID_test@@@10_51_db_72_70_a8@@@3c05ed7d-eae5-41ec-aebf-c284c9ddce90","username":"eyJpcCI6IjM5LjE0NC42LjEzOCJ9","password":"mFttmVzY5/r2c5CZoa3pVJVP9y5cDARgBlyaalpdOSQ=","publish_topic":"device-server","subscribe_topic":"null"},"websocket":{"url":"wss://api.tenclass.net/xiaozhi/v1/","token":"test-token"},"server_time":{"timestamp":1753070614907,"timezone_offset":480},"firmware":{"version":"2.1.0","url":""}}
+###
+作用：硬件获取公共的两个 mqtt 主题，一个用于发布消息到服务端，一个用于订阅服务端的消息
+###
+
+
+I (5012) Ml307Mqtt: MQTT connection state: 连接成功
+#不处理
+I (5032) MQTT: Received message on payload {"type":"mcp","payload":{"jsonrpc":"2.0","method":"initialize","id":10000,"params":{"protocolVersion":"2024-11-05","capabilities":{"vision":{"url":"http://api.xiaozhi.me/vision/explain","token":"test-token"}},"clientInfo":{"name":"xiaozhi-mqtt-client","version":"1.0.0"}}}}
+I (14512) Application: STATE: connecting
+
+
+
+
+#硬件发送hello，在公共 topic 握手，
+#服务端返回hello，包含 nonce: 01+ 时间戳 + sessionid + 0000000（01 +后续硬件上报音频时会发送：时间戳 + sessionid + 自增的xxxx
+I (14542) MQTT: Sent message: {"type":"hello","version": 3,"transport":"udp","audio_params":{"format":"opus", "sample_rate":16000, "channels":1, "frame_duration":60}, uuid，device_info-----------}
+这时候两端订阅公共的 topic，并发送hello
+I (14752) MQTT: Received message on payload {"type":"hello","version":3,"session_id":"8723e381","transport":"udp","udp":{"server":"120.24.160.13","port":8847,"encryption":"aes-128-ctr","key":"2268a87be4b04aefcc67578b2044c376","nonce":"
+"},"audio_params":{"format":"opus","sample_rate":24000,"channels":1,"frame_duration":60}}
+###
+作用：服务端在公共的 topic中收到硬件的 mac后，自动订阅基于硬件主题哈希化后产生的 topic，格式如下：
+服务端发布，硬件订阅：  potato/mac 哈希值/td
+硬件发布, 服务端订阅：potato/mac 哈希值/server
+后续的命令与文本交互在这两个主题进行
+服务端返回 udp 的连接信息
+###
+#硬件提取sessionid
+I (14772) MQTT: Session ID: 8723e381
+
+
+#硬件发送iot消息
+I (14832) MQTT: Sent message: {"session_id":"8723e381","type":"iot","update":true,"descriptors":[{"name":"Speaker","description":"扬声器","properties":{"volume":{"description":"当前音量值","type":"number"}},"methods":{"SetVolume":{"description":"设置音量","parameters":{"volume":{"description":"0到100之间的整数","type":"number"}}}}}]}
+I (14882) MQTT: Sent message: {"session_id":"8723e381","type":"iot","update":true,"descriptors":[{"name":"Battery","description":"电池管理","properties":{"level":{"description":"当前电量百分比","type":"number"},"charging":{"description":"是否充电中","type":"boolean"}},"methods":{}}]}
+I (14902) Application: STATE: listening
+I (14942) MQTT: Sent message: {"session_id":"8723e381","type":"iot","update":true,"states":[{"name":"Speaker","state":{"volume":90}},{"name":"Battery","state":{"level":0,"charging":true}}]}
+I (14982) MQTT: Sent message: {"session_id":"8723e381","type":"listen","state":"start","mode":"manual"}
+###
+正常通信，基于两个主题
+###
+
+
+
+
+
+# 服务端主动断开
+I (79622) MQTT: Received message on payload {"type":"goodbye","session_id":"8723e381"}
+I (79622) MQTT: Received goodbye message, session_id: 8723e381
+I (79652) MQTT: Sent message: {"session_id":"8723e381","type":"goodbye"}
+I (79652) Application: STATE: idle
+###
+服务端和硬件分别退订 potato/mac 哈希值/xx 主题,
+硬件可以断开broker 连接和退订公共 topic(hello 时才连接), 也可以不断开不退订
+###
+
+0100 0000 87870a9400 00000000 000000
+0100 0000 cb0c52db55 00000000 000000
+
+
+设备发送音频包头的 nonce信息组成说明：
+                         size         标识符        timestamp     自增
+len:16 nonce: 0100      0067      ad09f82500    00000000        00001a
+I (32582) MQTT: payload size:130
+I (32582) MQTT: timestamp:0
+len:16 nonce: 01000082ad09f825000000000000001b
+I (32652) MQTT: payload size:124
+I (32652) MQTT: timestamp:0
+len:16 nonce: 0100007cad09f825000000000000001c
+I (32712) MQTT: payload size:127
+I (32712) MQTT: timestamp:0
+len:16 nonce: 0100007fad09f825000000000000001d
+I (32772) MQTT: payload size:117
+I (32772) MQTT: timestamp:0
+len:16 nonce: 01000075ad09f825000000000000001e
+I (32842) MQTT: payload size:101
+I (32842) MQTT: timestamp:0
+len:16 nonce: 01000065ad09f825000000000000001f
+I (32902) MQTT: payload size:88
+I (32902) MQTT: timestamp:0
+len:16 nonce: 01000058ad09f8250000000000000020
+I (33002) MQTT: payload size:92
+I (33002) MQTT: timestamp:0
+len:16 nonce: 0100005cad09f8250000000000000021
+I (33092) MQTT: payload size:76
+I (33092) MQTT: timestamp:0
+len:16 nonce: 0100004cad09f8250000000000000022
+
+

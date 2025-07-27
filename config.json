@@ -1,0 +1,74 @@
+{
+  "server": {
+    "http": {
+      "host": "localhost",
+      "port": 8080,
+      "endpoint": "/devices/auth"
+    },
+    "mqtt": {
+      "host": "localhost",
+      "port": 1883,
+      "username": "test",
+      "password": "test",
+      "client_id_prefix": "test-device-"
+    },
+    "udp": {
+      "host": "localhost",
+      "port": 8847
+    }
+  },
+  "device": {
+    "mac": "10:51:db:72:70:a8",
+    "uuid": "3c05ed7d-eae5-41ec-aebf-c284c9ddce90",
+    "version": "2",
+    "language": "zh-CN",
+    "chip_model": "esp32s3",
+    "application": {
+      "name": "xiaozhi",
+      "version": "2.1.0",
+      "compile_time": "Jul 15 2025T15:28:46Z",
+      "idf_version": "v5.3.1-dirty"
+    },
+    "board": {
+      "type": "tudouzi",
+      "name": "tudouzi",
+      "revision": "ML307R-DL-MBRH0S01",
+      "carrier": "CHINA MOBILE",
+      "csq": "26",
+      "imei": "460240429759840",
+      "iccid": "89860842102481934840"
+    }
+  },
+  "audio": {
+    "sample_rate": 16000,
+    "channels": 1,
+    "frame_duration": 60,
+    "format": "opus",
+    "test_file": "./test_audio.wav"
+  },
+  "mqtt": {
+    "topics": {
+      "public": "device-server",
+      "device_prefix": "potato",
+      "device_suffix": "td",
+      "server_suffix": "server"
+    },
+    "qos": 1,
+    "retain": false
+  },
+  "udp": {
+    "packet_format": {
+      "nonce_size": 16,
+      "timestamp_size": 4,
+      "sequence_size": 4,
+      "nonce_format": "01 + timestamp(8) + sessionID(8) + 0000000"
+    },
+    "frame_interval": 60
+  },
+  "test": {
+    "timeout": 30,
+    "retry_count": 3,
+    "log_level": "info",
+    "enable_debug": false
+  }
+} 
