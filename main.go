@@ -35,7 +35,7 @@ const (
 	// UDPPort        = 50213
 	DeviceMAC      = "10:51:db:72:70:a8"
 	DeviceUUID     = "3c05ed7d-eae5-41ec-aebf-c284c9ddce90"
-	TestWavFile    = "./你好.wav"
+	TestWavFile    = "./天问一号.wav"
 	TestDuration   = 5 * time.Second
 	SampleInterval = 100 * time.Millisecond
 )
@@ -255,25 +255,32 @@ var aiOpusFrameMutex sync.Mutex
 // 		return
 // 	}
 
-// 	logger.Infof("音频转换成功，保存到: %s", filePath)
-// }
+//		logger.Infof("音频转换成功，保存到: %s", filePath)
+//	}
+var count = 0
 
 func testUDPClient(state *TestState) error {
 	logger.Info("启动UDP客户端监听，等待服务端音频响应...")
 
 	// 接收音频数据
 	buf := make([]byte, 4096)
-
-	// 设置超时时间为5秒
-	err := state.UDPConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if err != nil {
-		return fmt.Errorf("设置UDP读取超时失败: %v", err)
-	}
+	timeoutCount := 0
+	successCount := 0
 
 	for {
-		n, addr, err := state.UDPConn.ReadFromUDP(buf)
+		// 每次读取前重新设置超时时间为5秒
+		err := state.UDPConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if err != nil {
+			return fmt.Errorf("设置UDP读取超时失败: %v", err)
+		}
+
+		n, _, err := state.UDPConn.ReadFromUDP(buf)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				timeoutCount++
+				if timeoutCount%10 == 0 { // 每10次超时打印一次日志
+					logger.Debugf("UDP读取数据超时，继续等待... (超时次数: %d, 成功次数: %d)", timeoutCount, successCount)
+				}
 				continue // 超时继续循环
 			}
 			logger.Errorf("UDP读取数据失败: %v", err)
@@ -282,17 +289,11 @@ func testUDPClient(state *TestState) error {
 
 		// 将接收到的音频数据添加到缓冲区
 		if n > 0 {
-			state.handleAudioPacket(buf[:n], addr)
-			// aiOpusFrame = append(aiOpusFrame, buf[:n])
+			successCount++
+			state.handleAudioPacket(buf[:n], nil)
+			count++
+			logger.Debugf("成功接收音频包 count: %d, 数据大小: %d bytes", count, n)
 		}
-
-		// 打印音频数据信息
-		aiOpusFrameMutex.Lock()
-		packetCount := len(aiOpusFrame)
-		aiOpusFrameMutex.Unlock()
-		logger.Infof("收到来自 %s 的音频数据包，大小: %d bytes，累计: %d 包",
-			addr, n, packetCount)
-
 	}
 }
 
@@ -837,7 +838,7 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 				audioData[i] = make([]byte, len(frame))
 				copy(audioData[i], frame)
 			}
-			logger.Debug("audioData[0]: ", audioData[0])
+			logger.Debug("音频包长度: ", len(audioData))
 
 			// 清空原始数据
 			aiOpusFrame = make([][]byte, 0)
