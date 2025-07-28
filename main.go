@@ -29,8 +29,10 @@ const (
 	ServerPort     = 8084
 	MQTTHost       = "10.14.2.54"
 	MQTTPort       = 1883
-	UDPHost        = "localhost"
+	UDPHost        = "10.151.2.9"
 	UDPPort        = 8888
+	// UDPHost        = "39.108.76.174"
+	// UDPPort        = 50213
 	DeviceMAC      = "10:51:db:72:70:a8"
 	DeviceUUID     = "3c05ed7d-eae5-41ec-aebf-c284c9ddce90"
 	TestWavFile    = "./你好.wav"
@@ -63,6 +65,7 @@ func main() {
 	logger.Info("开始集成测试...")
 
 	aiOpusFrame = make([][]byte, 0)
+
 	state := &TestState{
 		Sequence:        1,
 		ReceivedText:    make([]string, 0),
@@ -70,6 +73,9 @@ func main() {
 		CommonPushTopic: "device-server",
 		SubServerTopic:  GetServerTopic(DeviceMAC),
 	}
+
+	// 启动定时器，每3秒转换音频数据
+	go startAudioConversionTimer(state)
 
 	// 1. HTTP认证
 	authResp, err := testHTTPAuth(state)
@@ -111,7 +117,6 @@ func main() {
 	}
 
 	// 6. 启动UDP客户端监听
-	go testUDPClient(state)
 
 	// 等待UDP客户端启动
 	time.Sleep(500 * time.Millisecond)
@@ -121,6 +126,7 @@ func main() {
 		logger.Errorf("UDP音频传输失败: %v", err)
 		os.Exit(1)
 	}
+	go testUDPClient(state)
 
 	// 8. 发送listen消息
 	if err := testMQQTTListenStop(state); err != nil {
@@ -188,6 +194,48 @@ func testMQQTTListenStart(state *TestState) error {
 
 var aiOpusFrame [][]byte
 
+// 启动音频转换定时器
+func startAudioConversionTimer(state *TestState) {
+	ticker := time.NewTicker(8 * time.Second)
+	defer ticker.Stop()
+
+	logger.Info("启动音频转换定时器，每3秒检查一次...")
+
+	for {
+		select {
+		case <-ticker.C:
+			go convertAudioToWav(state)
+		}
+	}
+}
+
+// 转换音频数据为WAV文件
+func convertAudioToWav(state *TestState) {
+	if len(aiOpusFrame) == 0 {
+		logger.Debug("没有音频数据需要转换")
+		return
+	}
+
+	logger.Info("开始转换音频数据为WAV文件，数据包数量:", len(aiOpusFrame))
+
+	// 创建副本避免并发问题
+	audioData := make([][]byte, len(aiOpusFrame))
+	copy(audioData, aiOpusFrame)
+
+	// 清空原始数据
+	aiOpusFrame = make([][]byte, 0)
+
+	// 转换音频
+	ginCtx := &gin.Context{}
+	filePath, err := OpusToWav(ginCtx, audioData, state.SessionID)
+	if err != nil {
+		logger.Errorf("转换音频失败: %v", err)
+		return
+	}
+
+	logger.Infof("音频转换成功，保存到: %s", filePath)
+}
+
 func testUDPClient(state *TestState) error {
 	logger.Info("启动UDP客户端监听，等待服务端音频响应...")
 
@@ -203,27 +251,21 @@ func testUDPClient(state *TestState) error {
 	for {
 		n, addr, err := state.UDPConn.ReadFromUDP(buf)
 		if err != nil {
-			logger.Errorf("UDP读取失败: %v", err)
-			return nil
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue // 超时继续循环
+			}
+			logger.Errorf("UDP读取数据失败: %v", err)
+			continue
 		}
 
-		aiOpusFrame = append(aiOpusFrame, buf)
-
-		if len(aiOpusFrame) > 50 {
-			go func() {
-				ginCtx := &gin.Context{}
-				str, err := OpusToWav(ginCtx, aiOpusFrame, state.SessionID)
-				if err != nil {
-					logger.Errorf("转换音频失败: %v", err)
-				}
-				logger.Debug("转换音频成功: ", str, "sessionID: ", state.SessionID)
-				aiOpusFrame = make([][]byte, 0)
-			}()
+		// 将接收到的音频数据添加到缓冲区
+		if n > 0 {
+			aiOpusFrame = append(aiOpusFrame, buf[:n])
 		}
 
 		// 打印音频数据信息
 		logger.Infof("收到来自 %s 的音频数据包，大小: %d bytes，累计: %d 包",
-			addr, n, len(aiOpusData))
+			addr, n, len(aiOpusFrame))
 	}
 }
 
