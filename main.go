@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/gin-gonic/gin"
 	"github.com/go-audio/wav"
 	"github.com/oov/audio/resampler"
 	"github.com/spf13/cast"
@@ -25,12 +25,12 @@ import (
 
 // 测试配置
 const (
-	ServerHost     = "localhost"
-	ServerPort     = 8084
-	MQTTHost       = "10.14.2.54"
-	MQTTPort       = 1883
-	UDPHost        = "10.151.2.9"
-	UDPPort        = 8888
+	ServerHost = "localhost"
+	ServerPort = 8084
+	MQTTHost   = "10.14.2.54"
+	MQTTPort   = 1883
+	UDPHost    = "10.151.2.9"
+	UDPPort    = 8888
 	// UDPHost        = "39.108.76.174"
 	// UDPPort        = 50213
 	DeviceMAC      = "10:51:db:72:70:a8"
@@ -42,15 +42,24 @@ const (
 
 // 测试状态
 type TestState struct {
-	SessionID       string
-	Nonce           [16]byte
-	MQTTClient      mqtt.Client
-	UDPConn         *net.UDPConn
-	CommonPushTopic string
-	SubServerTopic  string
-	Sequence        uint32
-	ReceivedText    []string
-	ReceivedAudio   []int // 接收到的音频包数量
+	SessionID         string
+	Nonce             [16]byte
+	MQTTClient        mqtt.Client
+	UDPConn           *net.UDPConn
+	CommonPushTopic   string
+	SubServerTopic    string
+	Sequence          uint32
+	ReceivedText      []string
+	ReceivedAudio     []int // 接收到的音频包数量
+	AcceptAudioPacket *AudioPacket
+}
+type AudioPacket struct {
+	Nonce     [16]byte // 16字节nonce
+	AudioData []byte   // 音频数据
+	Size      uint32   // 音频数据大小
+	SessionID string   // 会话ID
+	Timestamp uint64   // 时间戳
+	Sequence  uint32   // 序列号
 }
 
 const (
@@ -67,15 +76,16 @@ func main() {
 	aiOpusFrame = make([][]byte, 0)
 
 	state := &TestState{
-		Sequence:        1,
-		ReceivedText:    make([]string, 0),
-		ReceivedAudio:   make([]int, 0),
-		CommonPushTopic: "device-server",
-		SubServerTopic:  GetServerTopic(DeviceMAC),
+		Sequence:          1,
+		ReceivedText:      make([]string, 0),
+		ReceivedAudio:     make([]int, 0),
+		CommonPushTopic:   "device-server",
+		SubServerTopic:    GetServerTopic(DeviceMAC),
+		AcceptAudioPacket: &AudioPacket{},
 	}
 
 	// 启动定时器，每3秒转换音频数据
-	go startAudioConversionTimer(state)
+	// go startAudioConversionTimer(state)
 
 	// 1. HTTP认证
 	authResp, err := testHTTPAuth(state)
@@ -193,48 +203,60 @@ func testMQQTTListenStart(state *TestState) error {
 }
 
 var aiOpusFrame [][]byte
+var aiOpusFrameMutex sync.Mutex
 
 // 启动音频转换定时器
-func startAudioConversionTimer(state *TestState) {
-	ticker := time.NewTicker(8 * time.Second)
-	defer ticker.Stop()
+// func startAudioConversionTimer(state *TestState) {
+// 	ticker := time.NewTicker(10 * time.Second)
+// 	defer ticker.Stop()
 
-	logger.Info("启动音频转换定时器，每3秒检查一次...")
+// 	logger.Info("启动音频转换定时器，每3秒检查一次...")
 
-	for {
-		select {
-		case <-ticker.C:
-			go convertAudioToWav(state)
-		}
-	}
-}
+// 	for {
+// 		select {
+// 		case <-ticker.C:
+// 			go convertAudioToWav(state)
+// 		}
+// 	}
+// }
 
 // 转换音频数据为WAV文件
-func convertAudioToWav(state *TestState) {
-	if len(aiOpusFrame) == 0 {
-		logger.Debug("没有音频数据需要转换")
-		return
-	}
+// func convertAudioToWav(state *TestState) {
+// 	aiOpusFrameMutex.Lock()
+// 	defer aiOpusFrameMutex.Unlock()
 
-	logger.Info("开始转换音频数据为WAV文件，数据包数量:", len(aiOpusFrame))
+// 	logger.Debug("开始转换音频数据为WAV文件")
+// 	if len(aiOpusFrame) == 0 {
+// 		logger.Debug("没有音频数据需要转换")
+// 		return
+// 	}
 
-	// 创建副本避免并发问题
-	audioData := make([][]byte, len(aiOpusFrame))
-	copy(audioData, aiOpusFrame)
+// 	for i, data := range aiOpusFrame {
+// 		if i == 0 {
+// 			logger.Debug("首包保存数据：", data)
+// 		}
+// 	}
 
-	// 清空原始数据
-	aiOpusFrame = make([][]byte, 0)
+// 	logger.Info("开始转换音频数据为WAV文件，数据包数量:", len(aiOpusFrame))
 
-	// 转换音频
-	ginCtx := &gin.Context{}
-	filePath, err := OpusToWav(ginCtx, audioData, state.SessionID)
-	if err != nil {
-		logger.Errorf("转换音频失败: %v", err)
-		return
-	}
+// 	// 创建副本避免并发问题
+// 	audioData := make([][]byte, len(aiOpusFrame))
+// 	copy(audioData, aiOpusFrame)
 
-	logger.Infof("音频转换成功，保存到: %s", filePath)
-}
+// 	// 清空原始数据
+// 	aiOpusFrame = make([][]byte, 0)
+
+// 	// 转换音频
+// 	ginCtx := &gin.Context{}
+
+// 	filePath, err := OpusToWav(ginCtx, audioData, state.SessionID)
+// 	if err != nil {
+// 		logger.Errorf("转换音频失败: %v", err)
+// 		return
+// 	}
+
+// 	logger.Infof("音频转换成功，保存到: %s", filePath)
+// }
 
 func testUDPClient(state *TestState) error {
 	logger.Info("启动UDP客户端监听，等待服务端音频响应...")
@@ -260,13 +282,141 @@ func testUDPClient(state *TestState) error {
 
 		// 将接收到的音频数据添加到缓冲区
 		if n > 0 {
-			aiOpusFrame = append(aiOpusFrame, buf[:n])
+			state.handleAudioPacket(buf[:n], addr)
+			// aiOpusFrame = append(aiOpusFrame, buf[:n])
 		}
 
 		// 打印音频数据信息
+		aiOpusFrameMutex.Lock()
+		packetCount := len(aiOpusFrame)
+		aiOpusFrameMutex.Unlock()
 		logger.Infof("收到来自 %s 的音频数据包，大小: %d bytes，累计: %d 包",
-			addr, n, len(aiOpusFrame))
+			addr, n, packetCount)
+
 	}
+}
+
+var iii = 1
+var saveAudioData = [][]byte{}
+
+func (s *TestState) handleAudioPacket(data []byte, clientAddr *net.UDPAddr) {
+	// 解析音频包
+	packet, err := s.parseAudioPacket(data)
+	if err != nil {
+		logger.Errorf("解析音频包失败: %v", err)
+		return
+	}
+
+	// 从nonce中提取sessionID
+	sessionID := s.extractSessionID(packet.Nonce)
+	if sessionID == "" {
+		logger.Errorf("无法从nonce中提取sessionID")
+		return
+	}
+	if packet.Sequence <= s.AcceptAudioPacket.Sequence {
+		logger.Debugf("收到重复或过期的音频包 [%s], 序列号: %d, 期望: %d", sessionID, packet.Sequence, s.AcceptAudioPacket.Sequence+1)
+		return
+	}
+	s.AcceptAudioPacket.Sequence = packet.Sequence
+
+	aiOpusFrameMutex.Lock()
+	// 深拷贝音频数据，避免引用问题
+	audioDataCopy := make([]byte, len(packet.AudioData))
+	copy(audioDataCopy, packet.AudioData)
+
+	aiOpusFrame = append(aiOpusFrame, audioDataCopy)
+	saveAudioData = append(saveAudioData, audioDataCopy)
+	if iii == 1 {
+		iii++
+		logger.Debug("aiOpusFrame[0]: ", aiOpusFrame[0])
+	}
+	if len(aiOpusFrame) == 40 {
+		logger.Debug("接受的首包数据：", aiOpusFrame[0])
+		logger.Debug("saveAudioData[0]: ", saveAudioData[0])
+		// 验证数据一致性
+		if len(aiOpusFrame[0]) == len(saveAudioData[0]) {
+			isEqual := true
+			for i := 0; i < len(aiOpusFrame[0]); i++ {
+				if aiOpusFrame[0][i] != saveAudioData[0][i] {
+					isEqual = false
+					logger.Debugf("数据不一致，位置 %d: aiOpusFrame[0][%d]=%d, saveAudioData[0][%d]=%d", i, i, aiOpusFrame[0][i], i, saveAudioData[0][i])
+					break
+				}
+			}
+			if isEqual {
+				logger.Debug("数据一致性验证通过")
+			}
+		} else {
+			logger.Debugf("数据长度不一致: aiOpusFrame[0]=%d, saveAudioData[0]=%d", len(aiOpusFrame[0]), len(saveAudioData[0]))
+		}
+	}
+	packetCount := len(aiOpusFrame)
+	aiOpusFrameMutex.Unlock()
+
+	logger.Infof("收到来自 %s 的音频数据包，大小: %d bytes，累计: %d 包",
+		clientAddr, len(packet.AudioData), packetCount)
+
+}
+
+func (s *TestState) extractSessionID(nonce [16]byte) string {
+	// nonce格式: 0010 + size(2字节) + sessionID前5字节 + timestamp(4字节) + 自增序列号(3字节)
+	// sessionID位于第4-8字节 (从0开始计数)
+
+	// 跳过固定开头(2) + size(2) = 4字节
+	sessionIDBytes := nonce[4:9]
+
+	// 转换为16进制字符串
+	return hex.EncodeToString(sessionIDBytes)
+}
+func (s *TestState) parseAudioPacket(data []byte) (*AudioPacket, error) {
+	// 正确格式: [16字节nonce][音频数据]
+	minLen := 16
+	if len(data) < minLen {
+		return nil, fmt.Errorf("音频包长度不足: %d < %d", len(data), minLen)
+	}
+
+	packet := &AudioPacket{}
+
+	// 1. 解析nonce (16字节)
+	copy(packet.Nonce[:], data[0:16])
+
+	// 2. 从nonce中解析各个字段
+	size, timestamp, sessionID, sequence := s.parseNonce(packet.Nonce)
+
+	packet.Size = size
+	packet.Timestamp = uint64(timestamp)
+	packet.SessionID = sessionID
+	packet.Sequence = sequence
+	// logger.Debug("0100", packet.Size, packet.SessionID, packet.Timestamp, packet.Sequence)
+
+	// 3. 音频数据
+	packet.AudioData = data[16:]
+
+	return packet, nil
+}
+func (s *TestState) parseNonce(nonce [16]byte) (size uint32, timestamp uint32, sessionID string, sequence uint32) {
+	pos := 0
+
+	// 1. 跳过固定开头 0010 (2字节)
+	pos += 2
+
+	// 2. 解析size (2字节)
+	size = uint32(binary.BigEndian.Uint16(nonce[pos : pos+2]))
+	pos += 2
+
+	// 3. 解析sessionID (5字节)
+	sessionIDBytes := nonce[pos : pos+5]
+	sessionID = hex.EncodeToString(sessionIDBytes)
+	pos += 5
+
+	// 4. 解析timestamp (4字节)
+	timestamp = binary.BigEndian.Uint32(nonce[pos : pos+4])
+	pos += 4
+
+	// 5. 解析sequence (3字节)
+	sequence = uint32(nonce[pos])<<16 | uint32(nonce[pos+1])<<8 | uint32(nonce[pos+2])
+
+	return
 }
 
 // HTTP认证测试
@@ -412,6 +562,9 @@ func handleHelloResponse(state *TestState, msg mqtt.Message) {
 			state.SessionID = sessionID
 			logger.Infof("收到hello响应，SessionID: %s", sessionID)
 		}
+	} else if response["type"] == "end_chat" {
+		logger.Debug("收到end_chat响应")
+
 	}
 }
 
@@ -665,11 +818,43 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 	case "llm_message":
 	case "iot":
 		logger.Infof("收到iot消息: %s", response)
+	case "end_chat":
+		logger.Debug("收到end_chat响应")
+		go func() {
+			logger.Debug("开始转换音频数据为WAV文件")
 
+			aiOpusFrameMutex.Lock()
+			if len(aiOpusFrame) == 0 {
+				aiOpusFrameMutex.Unlock()
+				logger.Debug("没有音频数据需要转换")
+				return
+			}
+
+			logger.Debug("aiOpusFrame[0]: ", aiOpusFrame[0])
+			// 创建深拷贝避免并发问题
+			audioData := make([][]byte, len(aiOpusFrame))
+			for i, frame := range aiOpusFrame {
+				audioData[i] = make([]byte, len(frame))
+				copy(audioData[i], frame)
+			}
+			logger.Debug("audioData[0]: ", audioData[0])
+
+			// 清空原始数据
+			aiOpusFrame = make([][]byte, 0)
+			aiOpusFrameMutex.Unlock()
+
+			strPath, err := OpusToWav(nil, audioData, state.SessionID)
+			if err != nil {
+				logger.Errorf("转换音频数据为WAV文件失败: %v", err)
+			}
+			logger.Debug("转换音频数据为WAV文件成功,路径: ", strPath)
+		}()
 	case "goodbye":
 		logger.Info("收到goodbye响应")
 	}
 }
+
+var jjj = 1
 
 // 生成sessionID
 func generateSessionID() string {
