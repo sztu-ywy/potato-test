@@ -35,7 +35,7 @@ const (
 	UDPPort        = 50400
 	DeviceMAC      = "10:51:db:72:70:a8"
 	DeviceUUID     = "3c05ed7d-eae5-41ec-aebf-c284c9ddce90"
-	TestWavFile    = "./你好.wav"
+	TestWavFile    = "./天问一号.wav"
 	TestDuration   = 5 * time.Second
 	SampleInterval = 100 * time.Millisecond
 )
@@ -223,58 +223,7 @@ func testMQQTTListenStart(state *TestState) error {
 var aiOpusFrame [][]byte
 var aiOpusFrameMutex sync.Mutex
 
-// 启动音频转换定时器
-// func startAudioConversionTimer(state *TestState) {
-// 	ticker := time.NewTicker(10 * time.Second)
-// 	defer ticker.Stop()
 
-// 	logger.Info("启动音频转换定时器，每3秒检查一次...")
-
-// 	for {
-// 		select {
-// 		case <-ticker.C:
-// 			go convertAudioToWav(state)
-// 		}
-// 	}
-// }
-
-// 转换音频数据为WAV文件
-// func convertAudioToWav(state *TestState) {
-// 	aiOpusFrameMutex.Lock()
-// 	defer aiOpusFrameMutex.Unlock()
-
-// 	logger.Debug("开始转换音频数据为WAV文件")
-// 	if len(aiOpusFrame) == 0 {
-// 		logger.Debug("没有音频数据需要转换")
-// 		return
-// 	}
-
-// 	for i, data := range aiOpusFrame {
-// 		if i == 0 {
-// 			logger.Debug("首包保存数据：", data)
-// 		}
-// 	}
-
-// 	logger.Info("开始转换音频数据为WAV文件，数据包数量:", len(aiOpusFrame))
-
-// 	// 创建副本避免并发问题
-// 	audioData := make([][]byte, len(aiOpusFrame))
-// 	copy(audioData, aiOpusFrame)
-
-// 	// 清空原始数据
-// 	aiOpusFrame = make([][]byte, 0)
-
-// 	// 转换音频
-// 	ginCtx := &gin.Context{}
-
-// 	filePath, err := OpusToWav(ginCtx, audioData, state.SessionID)
-// 	if err != nil {
-// 		logger.Errorf("转换音频失败: %v", err)
-// 		return
-// 	}
-
-//		logger.Infof("音频转换成功，保存到: %s", filePath)
-//	}
 var count = 0
 
 func testUDPClient(state *TestState) error {
@@ -315,10 +264,8 @@ func testUDPClient(state *TestState) error {
 	}
 }
 
-// 1753761548049
-// 1753761548050
 
-var iii = 1
+
 var saveAudioData = [][]byte{}
 
 func (s *TestState) handleAudioPacket(data []byte, clientAddr *net.UDPAddr) {
@@ -878,7 +825,6 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 	}
 }
 
-var jjj = 1
 
 // 生成sessionID
 func generateSessionID() string {
@@ -972,43 +918,8 @@ func Uint24(b []byte) uint32 {
 	return uint32(b[0])<<16 | uint32(b[1])<<8 | uint32(b[2])
 }
 
-var i = 0
 
-// func buildAudioPacket(state *TestState, audioData []byte) []byte {
 
-// 	// 包格式: [16字节nonce][4字节size][16字节sessionid][8字节timestamp][4字节自增序列号][音频数据]
-// 	headerSize := 2 + 2 + 5 + 4 + 3
-// 	packet := make([]byte, headerSize+len(audioData))
-// 	pos := 0
-
-// 	start := "0010"
-// 	copy(packet[pos:pos+2], []byte(start)) // 固定标识符
-// 	// 2. 4字节size (0067)
-// 	size := uint32(len(audioData))
-// 	size_ := deToHex(int(size))
-// 	logger.Debugf("音频数据大小: %d bytes", size)
-// 	copy(packet[pos:pos+2], []byte(size_))
-// 	pos += 2
-
-// 	copy(packet[pos:pos+5], []byte(state.SessionID))
-// 	pos += 5
-
-// 	timestamp := "00000000"
-
-// 	copy(packet[pos:pos+4], []byte(timestamp)) // 4字节时间戳
-
-// 	str_i := deToHex(i)
-
-// 	copy(packet[pos:pos+3], []byte(str_i)) // 填充时间戳
-
-// 	// 6. 音频数据
-// 	copy(packet[pos:], audioData)
-
-// 	// 递增序列号
-// 	state.Sequence++
-
-// 	return packet
-// }
 
 // 哈希MAC地址
 func hashMAC(mac string) string {
