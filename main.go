@@ -29,13 +29,13 @@ const (
 	ServerPort = 8084
 	MQTTHost   = "10.14.2.54"
 	MQTTPort   = 1883
-	UDPHost    = "10.151.2.9"
-	UDPPort    = 8888
-	// UDPHost        = "39.108.76.174"
-	// UDPPort        = 50213
+	// UDPHost    = "10.151.2.9"
+	// UDPPort    = 8888
+	UDPHost        = "2huo.tech"
+	UDPPort        = 50400
 	DeviceMAC      = "10:51:db:72:70:a8"
 	DeviceUUID     = "3c05ed7d-eae5-41ec-aebf-c284c9ddce90"
-	TestWavFile    = "./天问一号.wav"
+	TestWavFile    = "./你好.wav"
 	TestDuration   = 5 * time.Second
 	SampleInterval = 100 * time.Millisecond
 )
@@ -45,6 +45,8 @@ type TestState struct {
 	SessionID         string
 	Nonce             [16]byte
 	MQTTClient        mqtt.Client
+	MQTT              MQTT
+	UDP               UDP
 	UDPConn           *net.UDPConn
 	CommonPushTopic   string
 	SubServerTopic    string
@@ -52,6 +54,17 @@ type TestState struct {
 	ReceivedText      []string
 	ReceivedAudio     []int // 接收到的音频包数量
 	AcceptAudioPacket *AudioPacket
+}
+type UDP struct {
+	Host string
+	Port int
+}
+type MQTT struct {
+	EndPoint        string
+	Username        string
+	Password        string
+	ClientID        string
+	CommonPushTopic string
 }
 type AudioPacket struct {
 	Nonce     [16]byte // 16字节nonce
@@ -82,6 +95,8 @@ func main() {
 		CommonPushTopic:   "device-server",
 		SubServerTopic:    GetServerTopic(DeviceMAC),
 		AcceptAudioPacket: &AudioPacket{},
+		MQTT:              MQTT{},
+		UDP:               UDP{},
 	}
 
 	// 启动定时器，每3秒转换音频数据
@@ -149,10 +164,13 @@ func main() {
 		logger.Errorf("MQTT文本消息失败: %v", err)
 	}
 
-	// 8. MQTT goodbye
-	// if err := testMQTTGoodbye(state); err != nil {
-	// 	logger.Errorf("MQTT goodbye失败: %v", err)
-	// }
+	go func() {
+		// 8. MQTT goodbye
+		time.Sleep(10 * time.Second)
+		if err := testMQTTGoodbye(state); err != nil {
+			logger.Errorf("MQTT goodbye失败: %v", err)
+		}
+	}()
 
 	time.Sleep(WaitForEndTime * time.Second)
 
@@ -292,10 +310,13 @@ func testUDPClient(state *TestState) error {
 			successCount++
 			state.handleAudioPacket(buf[:n], nil)
 			count++
-			logger.Debugf("成功接收音频包 count: %d, 数据大小: %d bytes", count, n)
+			logger.Debugf("成功接收音频包 count: %d, 数据大小: %d bytes, 时间戳: %d", count, n, time.Now().UnixMilli())
 		}
 	}
 }
+
+// 1753761548049
+// 1753761548050
 
 var iii = 1
 var saveAudioData = [][]byte{}
@@ -327,13 +348,8 @@ func (s *TestState) handleAudioPacket(data []byte, clientAddr *net.UDPAddr) {
 
 	aiOpusFrame = append(aiOpusFrame, audioDataCopy)
 	saveAudioData = append(saveAudioData, audioDataCopy)
-	if iii == 1 {
-		iii++
-		logger.Debug("aiOpusFrame[0]: ", aiOpusFrame[0])
-	}
+
 	if len(aiOpusFrame) == 40 {
-		logger.Debug("接受的首包数据：", aiOpusFrame[0])
-		logger.Debug("saveAudioData[0]: ", saveAudioData[0])
 		// 验证数据一致性
 		if len(aiOpusFrame[0]) == len(saveAudioData[0]) {
 			isEqual := true
@@ -351,11 +367,11 @@ func (s *TestState) handleAudioPacket(data []byte, clientAddr *net.UDPAddr) {
 			logger.Debugf("数据长度不一致: aiOpusFrame[0]=%d, saveAudioData[0]=%d", len(aiOpusFrame[0]), len(saveAudioData[0]))
 		}
 	}
-	packetCount := len(aiOpusFrame)
+	// packetCount := len(aiOpusFrame)
 	aiOpusFrameMutex.Unlock()
 
-	logger.Infof("收到来自 %s 的音频数据包，大小: %d bytes，累计: %d 包",
-		clientAddr, len(packet.AudioData), packetCount)
+	// logger.Infof("收到来自 %s 的音频数据包，大小: %d bytes，累计: %d 包",
+	// 	clientAddr, len(packet.AudioData), packetCount)
 
 }
 
@@ -479,6 +495,13 @@ func testHTTPAuth(state *TestState) (AuthResponse, error) {
 	logger.Infof("HTTP认证成功: %s", authResp)
 
 	state.CommonPushTopic = authResp.MQTT.PublishTopic
+
+	state.MQTT.EndPoint = authResp.MQTT.Endpoint
+	state.MQTT.Username = authResp.MQTT.Username
+	state.MQTT.Password = authResp.MQTT.Password
+	state.MQTT.ClientID = authResp.MQTT.ClientID
+	state.MQTT.CommonPushTopic = authResp.MQTT.PublishTopic
+
 	return authResp, nil
 }
 
@@ -510,10 +533,10 @@ func testMQTTHello(authResp AuthResponse, state *TestState) (string, error) {
 
 	// 连接MQTT
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", MQTTHost, MQTTPort))
-	opts.SetClientID("test-device-" + DeviceMAC)
-	opts.SetUsername("test")
-	opts.SetPassword("test")
+	opts.AddBroker(fmt.Sprintf("tcp://%s", state.MQTT.EndPoint))
+	opts.SetClientID(state.MQTT.ClientID)
+	opts.SetUsername(state.MQTT.Username)
+	opts.SetPassword(state.MQTT.Password)
 	opts.SetResumeSubs(true)
 	opts.SetCleanSession(false)
 	opts.SetKeepAlive(30 * time.Second)
@@ -552,18 +575,19 @@ func testMQTTHello(authResp AuthResponse, state *TestState) (string, error) {
 
 // 处理hello响应
 func handleHelloResponse(state *TestState, msg mqtt.Message) {
-	var response map[string]interface{}
+	var response MqttMessagePayload
 	if err := json.Unmarshal(msg.Payload(), &response); err != nil {
 		logger.Errorf("解析hello响应失败: %v", err)
 		return
 	}
 
-	if response["type"] == "hello" {
-		if sessionID, ok := response["session_id"].(string); ok {
-			state.SessionID = sessionID
-			logger.Infof("收到hello响应，SessionID: %s", sessionID)
-		}
-	} else if response["type"] == "end_chat" {
+	switch response.Type {
+	case "hello":
+		state.SessionID = response.SessionID
+		state.UDP.Host = response.UDP.Server
+		state.UDP.Port = response.UDP.Port
+		logger.Infof("收到hello响应，SessionID: %s", state.SessionID)
+	case "end_chat":
 		logger.Debug("收到end_chat响应")
 
 	}
@@ -658,7 +682,7 @@ func setupUDPConnection(state *TestState) error {
 	logger.Info("建立UDP连接...")
 
 	// 连接UDP服务器
-	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", UDPHost, UDPPort))
+	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", state.UDP.Host, state.UDP.Port))
 	if err != nil {
 		return fmt.Errorf("解析UDP地址失败: %v", err)
 	}
@@ -697,7 +721,7 @@ func testUDPAudio(state *TestState) error {
 	logger.Info("5. 开始UDP音频传输...")
 
 	// 连接UDP服务器
-	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", UDPHost, UDPPort))
+	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", state.UDP.Host, state.UDP.Port))
 	if err != nil {
 		return fmt.Errorf("解析UDP地址失败: %v", err)
 	}
@@ -739,7 +763,7 @@ func testUDPAudio(state *TestState) error {
 			return fmt.Errorf("发送音频包失败: %v", err)
 		}
 
-		logger.Debugf("发送音频包 %d/%d，大小: %d bytes,sessionID: %s", i+1, len(opusFrames), len(audioPacket), state.SessionID)
+		logger.Debugf("发送音频包 %d/%d，大小: %d bytes,sessionID: %s, 时间戳: %d", i+1, len(opusFrames), len(audioPacket), state.SessionID, time.Now().UnixMilli())
 
 		// 模拟实时发送间隔
 		time.Sleep(60 * time.Millisecond) // 60ms帧间隔
@@ -776,9 +800,9 @@ func testMQTTText(state *TestState) error {
 func testMQTTGoodbye(state *TestState) error {
 	logger.Info("7. 发送MQTT goodbye消息...")
 
-	goodbyeMsg := map[string]interface{}{
-		"type":       "goodbye",
-		"session_id": state.SessionID,
+	goodbyeMsg := &MqttMessagePayload{
+		Type:      "goodbye",
+		SessionID: state.SessionID,
 	}
 
 	goodbyeData, _ := json.Marshal(goodbyeMsg)
@@ -795,30 +819,30 @@ func testMQTTGoodbye(state *TestState) error {
 
 // 处理服务端消息
 func handleServerMessage(state *TestState, msg mqtt.Message) {
-	var response map[string]interface{}
+	var response MqttMessagePayload
 	if err := json.Unmarshal(msg.Payload(), &response); err != nil {
 		logger.Errorf("解析服务端消息失败: %v", err)
 		return
 	}
 
-	msgType, _ := response["type"].(string)
-	logger.Infof("收到服务端消息: %s", msgType)
+	logger.Infof("收到服务端消息: %s", response.Type)
 
-	switch msgType {
-	case "text":
-		if text, ok := response["text"].(string); ok {
-			state.ReceivedText = append(state.ReceivedText, text)
-			logger.Infof("收到文本消息: %s", text)
+	logger.Debug("收到服务端消息: ", response)
+
+	switch response.Type {
+	case "tts":
+		switch response.State {
+		case "start":
+			logger.Infof("收到tts_start消息: %s", response)
+		case "stop":
+			logger.Infof("收到tts_stop消息: %s", response)
+		case "sentence_start":
+			logger.Infof("收到tts_sentence_start消息: %s", response)
 		}
-	case "tts_start":
-		logger.Infof("收到tts_start消息: %s", response)
-	case "tts_sentence":
-		logger.Infof("收到tts_sentence消息: %s", response)
-	case "tts_stop":
-		logger.Infof("收到tts_stop消息: %s", response)
-	case "llm_message":
+	case "llm":
+		logger.Infof("llm_emotion: %s", response.Emotion)
 	case "iot":
-		logger.Infof("收到iot消息: %s", response)
+		logger.Infof("收到iot消息: %s", response.Commands)
 	case "end_chat":
 		logger.Debug("收到end_chat响应")
 		go func() {
@@ -831,7 +855,6 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 				return
 			}
 
-			logger.Debug("aiOpusFrame[0]: ", aiOpusFrame[0])
 			// 创建深拷贝避免并发问题
 			audioData := make([][]byte, len(aiOpusFrame))
 			for i, frame := range aiOpusFrame {
@@ -934,7 +957,6 @@ func (c *TestState) buildNonce(audioData []byte) [16]byte {
 	nonce[pos+2] = byte(seq24)      // 低8位
 
 	logger.Debugf("构建的nonce: %x", nonce)
-	logger.Debugf("构建的seq24: %d", seq24)
 	return nonce
 }
 
