@@ -28,7 +28,7 @@ import (
 // 并发测试配置
 const (
 	// 并发测试用例数量
-	ConcurrentTestCount = 5
+	ConcurrentTestCount = 15
 
 	// 服务器配置
 	ServerHost = "aiotcomm.com.cn"
@@ -1077,12 +1077,13 @@ func generateDeviceConfig() error {
 
 	// 生成多个设备配置
 	for i := 0; i < ConcurrentTestCount; i++ {
+		logger.Debugf("ConcurrentTestCount: %d", i)
 		device := DeviceInfo{
 			Version:             "2",
 			Language:            "zh-CN",
 			FlashSize:           16777216,
 			MinimumFreeHeapSize: 8441000,
-			MacAddress:          fmt.Sprintf("11:51:db:72:70:%02x", 0xb9+i),
+			MacAddress:          fmt.Sprintf("bb:51:db:72:70:%02x", i),
 			UUID:                fmt.Sprintf("3c05ed7d-eae5-41ec-aebf-c284c9ddce%02x", 0x90+i),
 			ChipModelName:       "esp32s3",
 			Application: AppInfo{
