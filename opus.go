@@ -7,13 +7,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/go-audio/wav"
 	"github.com/hraban/opus"
 	"github.com/uozi-tech/cosy/logger"
 )
 
-func OpusToWav(c *gin.Context, opusData [][]byte, chatMsgId string) (string, error) {
+func OpusToWav(c interface{}, opusData [][]byte, chatMsgId string) (string, error) {
 	dir := "statics/audio"
 	// 确保目录存在
 	if err := os.MkdirAll(dir, 0755); err != nil {

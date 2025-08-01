@@ -38,8 +38,6 @@ uint64=1754025095376
 */
 // 并发测试配置
 const (
-	// 并发测试用例数量
-	ConcurrentTestCount = 2
 
 	// 服务器配置
 	ServerHost = "aiotcomm.com.cn"
@@ -114,9 +112,10 @@ type TestState struct {
 	AudioFrames      [][]byte
 	AudioFramesMutex sync.Mutex
 	// 时间记录
-	ListenStopTime     time.Time
-	FirstAudioTime     time.Time
-	FirstAudioReceived bool
+	ListenStopTime       time.Time
+	FirstAudioTime       time.Time
+	FirstAudioReceived   bool
+	LastAudioReceiveTime time.Time // 最后音频接收时间
 }
 type UDP struct {
 	Server string `json:"server"`
@@ -155,7 +154,35 @@ const (
 
 // 集成测试主函数
 // func TestIntegration(t *testing.T) {
+const (
+	// 并发测试用例数量
+	ConcurrentTestCount = 1
+	// 连续对话次数
+	ContinuousDialogueCount = 2
+)
+
 func main() {
+	logger.Info("请选择测试类型:")
+	logger.Info("1. 并发集成测试,当前并发数量: ", ConcurrentTestCount)
+	logger.Info("2. 连续对话测试,当前连续对话次数: ", ContinuousDialogueCount)
+	logger.Info("请输入选择 (1 或 2):")
+
+	var choice string
+	fmt.Scanln(&choice)
+
+	switch choice {
+	case "1":
+		runConcurrentIntegrationTest()
+	case "2":
+		runContinuousDialogueTest()
+	default:
+		logger.Error("无效选择，默认运行并发集成测试")
+		runConcurrentIntegrationTest()
+	}
+}
+
+// 并发集成测试主函数
+func runConcurrentIntegrationTest() {
 	logger.Info("开始并发集成测试...")
 
 	// 初始化随机数种子
@@ -805,9 +832,8 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 		logger.Infof("收到iot消息: %s", response.Commands)
 	case "end_chat":
 		logger.Debug("收到end_chat响应")
-
-	case "goodbye":
-		logger.Info("收到goodbye响应")
+	case "save_audio":
+		logger.Infof("收到save_audio消息: %s", response)
 		go func() {
 			logger.Debugf("设备 %s 开始转换音频数据为WAV文件", state.SessionID)
 
@@ -830,13 +856,16 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 			state.AudioFrames = make([][]byte, 0)
 			state.AudioFramesMutex.Unlock()
 
-			strPath, err := OpusToWav(nil, audioData, state.SessionID)
+			strPath, err := OpusToWav(nil, audioData, state.SessionID+"____"+cast.ToString(len(audioData)))
 			if err != nil {
 				logger.Errorf("设备 %s 转换音频数据为WAV文件失败: %v", state.SessionID, err)
 			} else {
 				logger.Debugf("设备 %s 转换音频数据为WAV文件成功,路径: %s", state.SessionID, strPath)
 			}
 		}()
+	case "goodbye":
+		logger.Info("收到goodbye响应: ", response)
+
 	}
 }
 
@@ -1803,7 +1832,7 @@ func testMQTTGoodbyeWithDevice(state *TestState, device DeviceInfo) error {
 	logger.Infof("设备 %s topic: %s 发送MQTT goodbye消息...", device.MacAddress, state.CommonPushTopic)
 
 	goodbyeMsg := &MqttMessagePayload{
-		Type:      "goodbye",
+		Type:      "save_audio",
 		SessionID: state.SessionID,
 	}
 
@@ -1816,5 +1845,23 @@ func testMQTTGoodbyeWithDevice(state *TestState, device DeviceInfo) error {
 	time.Sleep(WaitForGoodbyeTime * time.Second)
 
 	logger.Infof("设备 %s MQTT goodbye消息发送成功,sessionID: %s,topic: %s", device.MacAddress, state.SessionID, state.CommonPushTopic)
+	return nil
+}
+
+// 带设备的MQTT save_audio消息测试
+func testMQTTSaveAudioWithDevice(state *TestState, device DeviceInfo) error {
+	logger.Infof("设备 %s topic: %s 发送MQTT save_audio消息...", device.MacAddress, state.CommonPushTopic)
+
+	saveAudioMsg := &MqttMessagePayload{
+		Type:      "save_audio",
+		SessionID: state.SessionID,
+	}
+
+	saveAudioData, _ := json.Marshal(saveAudioMsg)
+	if token := state.MQTTClient.Publish(state.CommonPushTopic, 1, false, saveAudioData); token.Wait() && token.Error() != nil {
+		return fmt.Errorf("发布save_audio消息失败: %v", token.Error())
+	}
+
+	logger.Infof("设备 %s MQTT save_audio消息发送成功,sessionID: %s,topic: %s", device.MacAddress, state.SessionID, state.CommonPushTopic)
 	return nil
 }
