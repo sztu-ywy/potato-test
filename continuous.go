@@ -251,7 +251,7 @@ func executeDialogueRound(state *ContinuousDialogueState, device DeviceInfo, rou
 	roundResult.ListenStartTime = time.Since(listenStartTime)
 
 	// 等待一段时间让服务器准备
-	time.Sleep(1 * time.Second)
+	time.Sleep(WaitForSendAudioTime)
 
 	// 2. UDP音频传输
 	audioSendTime := time.Now()

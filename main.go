@@ -154,17 +154,18 @@ const (
 
 // 集成测试主函数
 // func TestIntegration(t *testing.T) {
-const (
-	// 并发测试用例数量
-	ConcurrentTestCount = 1
-	// 连续对话次数
-	ContinuousDialogueCount = 2
-)
+// 并发测试用例数量
+var ConcurrentTestCount = 2
+
+// 连续对话次数
+var ContinuousDialogueCount = 2
+
+var WaitForSendAudioTime = 0 * time.Second
 
 func main() {
 	logger.Info("请选择测试类型:")
-	logger.Info("1. 并发集成测试,当前并发数量: ", ConcurrentTestCount)
-	logger.Info("2. 连续对话测试,当前连续对话次数: ", ContinuousDialogueCount)
+	logger.Info("1. 并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
+	logger.Info("2. 连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
 	logger.Info("请输入选择 (1 或 2):")
 
 	var choice string
@@ -174,11 +175,44 @@ func main() {
 	case "1":
 		runConcurrentIntegrationTest()
 	case "2":
-		runContinuousDialogueTest()
+		runInteractiveContinuousDialogueTest()
 	default:
 		logger.Error("无效选择，默认运行并发集成测试")
 		runConcurrentIntegrationTest()
 	}
+}
+
+// 交互式连续对话测试
+func runInteractiveContinuousDialogueTest() {
+	logger.Info("=== 连续对话测试配置 ===")
+
+	// 获取并发用例数量
+	var concurrentCount int
+	logger.Info("请输入并发用例数量 (当前默认: ", ConcurrentTestCount, "):")
+	fmt.Scanln(&concurrentCount)
+	if concurrentCount <= 0 {
+		concurrentCount = ConcurrentTestCount
+		logger.Info("使用默认并发数量: ", ConcurrentTestCount)
+	}
+	ConcurrentTestCount = concurrentCount
+
+	// 获取连续对话次数
+	var dialogueCount int
+	logger.Info("请输入连续对话次数 (当前默认: ", ContinuousDialogueCount, "):")
+	fmt.Scanln(&dialogueCount)
+	if dialogueCount <= 0 {
+		dialogueCount = ContinuousDialogueCount
+		logger.Info("使用默认连续对话次数: ", ContinuousDialogueCount)
+	}
+	ContinuousDialogueCount = dialogueCount
+
+	logger.Info("=== 测试配置确认 ===")
+	logger.Info("并发用例数量: ", concurrentCount)
+	logger.Info("连续对话次数: ", dialogueCount)
+	logger.Info("开始测试...")
+
+	// 运行连续对话测试
+	runContinuousDialogueTest()
 }
 
 // 并发集成测试主函数
@@ -1830,9 +1864,10 @@ func testMQTTTextWithDevice(state *TestState, device DeviceInfo) error {
 // 带设备的MQTT goodbye测试
 func testMQTTGoodbyeWithDevice(state *TestState, device DeviceInfo) error {
 	logger.Infof("设备 %s topic: %s 发送MQTT goodbye消息...", device.MacAddress, state.CommonPushTopic)
+	// TODO：不发goodbye 的话，可以测试服务端内存泄漏情况
 
 	goodbyeMsg := &MqttMessagePayload{
-		Type:      "save_audio",
+		Type:      "goodbye",
 		SessionID: state.SessionID,
 	}
 
