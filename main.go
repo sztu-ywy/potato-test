@@ -25,10 +25,21 @@ import (
 	"layeh.com/gopus"
 )
 
+/*
+
+uint64=1754025095011
+ int64=1754025095055
+wait  uint64=2139
+
+
+uint64=1754025095376
+ int64=1754025095403
+
+*/
 // 并发测试配置
 const (
 	// 并发测试用例数量
-	ConcurrentTestCount = 5
+	ConcurrentTestCount = 2
 
 	// 服务器配置
 	ServerHost = "aiotcomm.com.cn"
@@ -48,7 +59,7 @@ const (
 	SampleInterval = 100 * time.Millisecond
 
 	// 设备配置文件路径
-	DeviceConfigFile = "./device_config.json"
+	DeviceConfigFile = "statics/test_json/device_config.json"
 
 	// 音频文件目录
 	AudioFilesDir = "./statics/audio/"
@@ -102,6 +113,10 @@ type TestState struct {
 	// 每个设备独立的音频数据存储
 	AudioFrames      [][]byte
 	AudioFramesMutex sync.Mutex
+	// 时间记录
+	ListenStopTime     time.Time
+	FirstAudioTime     time.Time
+	FirstAudioReceived bool
 }
 type UDP struct {
 	Server string `json:"server"`
@@ -283,6 +298,20 @@ func (s *TestState) handleAudioPacket(data []byte, clientAddr *net.UDPAddr) {
 		return
 	}
 	s.AcceptAudioPacket.Sequence = packet.Sequence
+
+	// 记录第一个音频包的时间
+	if !s.FirstAudioReceived {
+		s.FirstAudioTime = time.Now()
+		s.FirstAudioReceived = true
+
+		// 计算时间差
+		if !s.ListenStopTime.IsZero() {
+			timeDiff := s.FirstAudioTime.Sub(s.ListenStopTime)
+			logger.Infof("设备 %s 收到第一个音频包，时间差: %v (listen stop -> 第一个音频包)", s.SessionID, timeDiff)
+		} else {
+			logger.Infof("设备 %s 收到第一个音频包，时间: %v (未记录listen stop时间)", s.SessionID, s.FirstAudioTime)
+		}
+	}
 
 	// 使用设备自己的音频存储，避免并发冲突
 	s.AudioFramesMutex.Lock()
@@ -1217,15 +1246,16 @@ func runSingleDeviceTest(device DeviceInfo, wg *sync.WaitGroup) {
 
 	// 初始化测试状态
 	state := &TestState{
-		Sequence:          1,
-		ReceivedText:      make([]string, 0),
-		ReceivedAudio:     make([]int, 0),
-		CommonPushTopic:   "device-server",
-		SubServerTopic:    GetServerTopic(device.MacAddress),
-		AcceptAudioPacket: &AudioPacket{},
-		MQTT:              MQTT{},
-		UDP:               UDP{},
-		AudioFrames:       make([][]byte, 0),
+		Sequence:           1,
+		ReceivedText:       make([]string, 0),
+		ReceivedAudio:      make([]int, 0),
+		CommonPushTopic:    "device-server",
+		SubServerTopic:     GetServerTopic(device.MacAddress),
+		AcceptAudioPacket:  &AudioPacket{},
+		MQTT:               MQTT{},
+		UDP:                UDP{},
+		AudioFrames:        make([][]byte, 0),
+		FirstAudioReceived: false,
 	}
 
 	// 1. HTTP认证
@@ -1448,7 +1478,7 @@ func saveDetailedResults() {
 		return
 	}
 
-	filename := fmt.Sprintf("test_results_%s.json", time.Now().Format("20060102_150405"))
+	filename := fmt.Sprintf("statics/test_json/test_results_%s.json", time.Now().Format("20060102_150405"))
 	err = os.WriteFile(filename, data, 0644)
 	if err != nil {
 		logger.Errorf("保存测试结果失败: %v", err)
@@ -1693,7 +1723,9 @@ func testMQQTTListenStopWithDevice(state *TestState, device DeviceInfo) error {
 		return fmt.Errorf("发布listen stop消息失败: %v", token.Error())
 	}
 
-	logger.Infof("设备 %s MQTT listen stop消息发送成功,topic: %s", state.SessionID, state.CommonPushTopic)
+	// 记录listen stop发送时间
+	state.ListenStopTime = time.Now()
+	logger.Infof("设备 %s MQTT listen stop消息发送成功,topic: %s, 时间: %v", state.SessionID, state.CommonPushTopic, state.ListenStopTime)
 	return nil
 }
 
