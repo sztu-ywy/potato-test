@@ -28,7 +28,7 @@ import (
 // 并发测试配置
 const (
 	// 并发测试用例数量
-	ConcurrentTestCount = 15
+	ConcurrentTestCount = 5
 
 	// 服务器配置
 	ServerHost = "aiotcomm.com.cn"
@@ -128,6 +128,15 @@ const (
 	WaitForHelloTime   = 1  // 等待hello响应的时间（秒）
 	WaitForEndTime     = 20 // 等待文本消息响应的时间（秒）
 )
+
+// func main() {
+// 	for i := 0; i < 10000; i++ {
+// 		mac := fmt.Sprintf("bb:51:db:72:70:%02x", i)
+// 		hashMAC := HashMAC(mac)
+// 		logger.Debugf("hashMAC: %v", hashMAC)
+// 		logger.Debugf("mac: %v", mac)
+// 	}
+// }
 
 // 集成测试主函数
 // func TestIntegration(t *testing.T) {
@@ -1332,7 +1341,7 @@ func runSingleDeviceTest(device DeviceInfo, wg *sync.WaitGroup) {
 
 	// 9. 发送goodbye消息
 	goodbyeStart := time.Now()
-	time.Sleep(10 * time.Second)
+	time.Sleep(15 * time.Second)
 	if err := testMQTTGoodbyeWithDevice(state, device); err != nil {
 		logger.Errorf("设备 %s MQTT goodbye失败: %v", device.MacAddress, err)
 	}
