@@ -116,6 +116,7 @@ type TestState struct {
 	FirstAudioTime       time.Time
 	FirstAudioReceived   bool
 	LastAudioReceiveTime time.Time // 最后音频接收时间
+	CloseSignal          chan struct{}
 }
 type UDP struct {
 	Server string `json:"server"`
@@ -164,9 +165,11 @@ var WaitForSendAudioTime = 0 * time.Second
 
 func main() {
 	logger.Info("请选择测试类型:")
-	logger.Info("1. 并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
-	logger.Info("2. 连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
-	logger.Info("请输入选择 (1 或 2):")
+	logger.Info("1. MQTT并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
+	logger.Info("2. MQTT连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
+	logger.Info("3. WebSocket并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
+	logger.Info("4. WebSocket连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
+	logger.Info("请输入选择 (1, 2, 3 或 4):")
 
 	var choice string
 	fmt.Scanln(&choice)
@@ -176,15 +179,19 @@ func main() {
 		runConcurrentIntegrationTest()
 	case "2":
 		runInteractiveContinuousDialogueTest()
+	case "3":
+		runWebsocketTest()
+	case "4":
+		runInteractiveWebSocketContinuousDialogueTest()
 	default:
-		logger.Error("无效选择，默认运行并发集成测试")
+		logger.Error("无效选择，默认运行MQTT并发集成测试")
 		runConcurrentIntegrationTest()
 	}
 }
 
 // 交互式连续对话测试
 func runInteractiveContinuousDialogueTest() {
-	logger.Info("=== 连续对话测试配置 ===")
+	logger.Info("=== MQTT连续对话测试配置 ===")
 
 	// 获取并发用例数量
 	var concurrentCount int
@@ -213,6 +220,39 @@ func runInteractiveContinuousDialogueTest() {
 
 	// 运行连续对话测试
 	runContinuousDialogueTest()
+}
+
+// 交互式WebSocket连续对话测试
+func runInteractiveWebSocketContinuousDialogueTest() {
+	logger.Info("=== WebSocket连续对话测试配置 ===")
+
+	// 获取并发用例数量
+	var concurrentCount int
+	logger.Info("请输入并发用例数量 (当前默认: ", ConcurrentTestCount, "):")
+	fmt.Scanln(&concurrentCount)
+	if concurrentCount <= 0 {
+		concurrentCount = ConcurrentTestCount
+		logger.Info("使用默认并发数量: ", ConcurrentTestCount)
+	}
+	ConcurrentTestCount = concurrentCount
+
+	// 获取连续对话次数
+	var dialogueCount int
+	logger.Info("请输入连续对话次数 (当前默认: ", ContinuousDialogueCount, "):")
+	fmt.Scanln(&dialogueCount)
+	if dialogueCount <= 0 {
+		dialogueCount = ContinuousDialogueCount
+		logger.Info("使用默认连续对话次数: ", ContinuousDialogueCount)
+	}
+	ContinuousDialogueCount = dialogueCount
+
+	logger.Info("=== 测试配置确认 ===")
+	logger.Info("并发用例数量: ", concurrentCount)
+	logger.Info("连续对话次数: ", dialogueCount)
+	logger.Info("开始测试...")
+
+	// 运行WebSocket连续对话测试
+	RunWebSocketContinuousDialogueTest()
 }
 
 // 并发集成测试主函数
