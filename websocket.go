@@ -183,7 +183,6 @@ func runSingleDeviceWebSocketTest(device DeviceInfo, wg *sync.WaitGroup) {
 		Connected:            false,
 		ReconnectAttempts:    0,
 		MaxReconnectAttempts: 3,
-		CloseSignal:          make(chan struct{}, 1),
 	}
 
 	// 1. HTTP认证
@@ -307,8 +306,8 @@ func runSingleDeviceWebSocketTest(device DeviceInfo, wg *sync.WaitGroup) {
 				if currentAudioCount > lastAudioCount {
 					state.LastAudioReceiveTime = time.Now()
 					lastAudioCount = currentAudioCount
-					logger.Infof("设备 %s 收到音频包，当前数量: %d",
-						device.MacAddress, currentAudioCount)
+					logger.Infof("设备 %s 收到音频包，当前数量: %d sessionID: %s",
+						device.MacAddress, currentAudioCount, state.SessionID)
 				}
 
 				// 检查是否3秒内没有收到新音频
@@ -327,6 +326,25 @@ func runSingleDeviceWebSocketTest(device DeviceInfo, wg *sync.WaitGroup) {
 
 					// 等待save_audio响应（音频保存完成）
 					time.Sleep(2 * time.Second)
+
+					// 手动发送关闭信号，避免重复发送
+					logger.Infof("设备 %s 准备手动发送关闭信号", device.MacAddress)
+
+					// 先清空通道，确保可以发送
+					select {
+					case <-state.CloseSignal:
+						logger.Debugf("设备 %s 清空CloseSignal通道", device.MacAddress)
+					default:
+						// 通道为空，继续
+					}
+
+					// 发送关闭信号
+					select {
+					case state.CloseSignal <- struct{}{}:
+						logger.Infof("设备 %s 手动发送关闭信号成功", device.MacAddress)
+					default:
+						logger.Warnf("设备 %s CloseSignal通道已满，跳过手动发送", device.MacAddress)
+					}
 					break
 				}
 			}
@@ -500,7 +518,7 @@ func receiveWebSocketMessages(state *WebSocketTestState) {
 		}
 
 		if msgType == websocket.BinaryMessage {
-			logger.Infof("设备 %s 收到WebSocket二进制音频消息，大小: %d bytes", state.DeviceMAC, len(message))
+			// logger.Infof("设备 %s 收到WebSocket二进制音频消息，大小: %d bytes", state.DeviceMAC, len(message))
 			state.handleWebSocketAudioPacket(message)
 			continue
 		} else {
@@ -534,6 +552,7 @@ func handleWebSocketMessage(state *WebSocketTestState, msg *WebSocketMessagePayl
 			state.SessionID = msg.SessionID
 			logger.Infof("设备 %s 收到hello响应，SessionID: %s", state.DeviceMAC, state.SessionID)
 		}
+
 	case "tts":
 		if msg.State == "start" {
 			logger.Infof("设备 %s 收到tts_start消息", state.DeviceMAC)
@@ -554,6 +573,9 @@ func handleWebSocketMessage(state *WebSocketTestState, msg *WebSocketMessagePayl
 			logger.Debugf("设备 %s 开始转换音频数据为WAV文件", state.SessionID)
 
 			state.AudioFramesMutex.Lock()
+			audioCount := len(state.AudioFrames)
+			logger.Infof("设备 %s 当前音频包数量: %d", state.SessionID, audioCount)
+
 			if len(state.AudioFrames) == 0 {
 				state.AudioFramesMutex.Unlock()
 				logger.Debugf("设备 %s 没有音频数据需要转换", state.SessionID)
@@ -579,7 +601,15 @@ func handleWebSocketMessage(state *WebSocketTestState, msg *WebSocketMessagePayl
 				logger.Debugf("设备 %s 转换音频数据为WAV文件成功,路径: %s", state.SessionID, strPath)
 			}
 
-			state.CloseSignal <- struct{}{}
+			// 检查通道是否为空，避免重复发送
+			select {
+			case state.CloseSignal <- struct{}{}:
+				logger.Infof("设备 %s 收到save_audio响应，发送关闭信号", state.SessionID)
+				// 成功发送关闭信号
+			default:
+				logger.Debugf("设备 %s CloseSignal通道已满，跳过重复发送", state.SessionID)
+				// 通道已满，说明已经发送过了，忽略
+			}
 		}()
 
 	case "goodbye":
@@ -612,10 +642,10 @@ func (s *WebSocketTestState) handleWebSocketAudioPacket(audioData []byte) {
 	copy(audioDataCopy, audioData)
 
 	s.AudioFrames = append(s.AudioFrames, audioDataCopy)
-	currentCount := len(s.AudioFrames)
+	// currentCount := len(s.AudioFrames)
 	s.AudioFramesMutex.Unlock()
 
-	logger.Infof("设备 %s 音频包已存储，当前总音频包数: %d", s.SessionID, currentCount)
+	// logger.Infof("设备 %s 音频包已存储，当前总音频包数: %d", s.SessionID, currentCount)
 }
 
 // 发送WebSocket消息
@@ -1206,8 +1236,8 @@ func executeWebSocketDialogueRound(state *WebSocketContinuousDialogueState, devi
 
 			// 每10次检查打印一次调试信息
 			if (time.Since(waitStartTime).Milliseconds()/100)%10 == 0 {
-				logger.Debugf("设备 %s 第 %d 轮WebSocket对话等待音频中，当前音频包数: %d, 等待时间: %v",
-					device.MacAddress, roundNumber, currentAudioCount, time.Since(waitStartTime))
+				logger.Debugf("设备 %s 第 %d 轮WebSocket对话等待音频中，当前音频包数: %d, 等待时间: %v,sessionID: %s",
+					device.MacAddress, roundNumber, currentAudioCount, time.Since(waitStartTime), state.SessionID)
 			}
 
 			if currentAudioCount > 0 {
@@ -1223,8 +1253,8 @@ func executeWebSocketDialogueRound(state *WebSocketContinuousDialogueState, devi
 				if currentAudioCount > lastAudioCount {
 					state.LastAudioReceiveTime = time.Now()
 					lastAudioCount = currentAudioCount
-					logger.Infof("设备 %s 第 %d 轮WebSocket对话收到音频包，当前数量: %d",
-						device.MacAddress, roundNumber, currentAudioCount)
+					// logger.Infof("设备 %s 第 %d 轮WebSocket对话收到音频包，当前数量: %d",
+					// 	device.MacAddress, roundNumber, currentAudioCount)
 				}
 
 				// 检查是否3秒内没有收到新音频
