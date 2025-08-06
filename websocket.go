@@ -45,7 +45,7 @@ type WebSocketMessagePayload struct {
 	Version     int                  `json:"version,omitempty"`
 	Transport   string               `json:"transport,omitempty"`
 	AudioParams *AudioParams         `json:"audio_params,omitempty"`
-	DeviceInfo  *WebSocketDeviceInfo `json:"device_info,omitempty"`
+	DeviceInfoRequest  *WebSocketDeviceInfo `json:"device_info,omitempty"`
 	SessionID   string               `json:"session_id,omitempty"`
 	State       string               `json:"state,omitempty"`
 	Mode        string               `json:"mode,omitempty"`
@@ -146,7 +146,7 @@ func runWebsocketTest() {
 }
 
 // 单个设备WebSocket测试
-func runSingleDeviceWebSocketTest(device DeviceInfo, wg *sync.WaitGroup) {
+func runSingleDeviceWebSocketTest(device DeviceInfoRequest, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	result := TestResult{
@@ -398,7 +398,7 @@ func runSingleDeviceWebSocketTest(device DeviceInfo, wg *sync.WaitGroup) {
 }
 
 // WebSocket连接和hello握手
-func testWebSocketHello(authResp AuthResponse, state *WebSocketTestState, device DeviceInfo) (string, error) {
+func testWebSocketHello(authResp AuthResponse, state *WebSocketTestState, device DeviceInfoRequest) (string, error) {
 	logger.Infof("设备 %s 开始WebSocket hello握手...", device.MacAddress)
 
 	// 生成sessionID
@@ -422,7 +422,7 @@ func testWebSocketHello(authResp AuthResponse, state *WebSocketTestState, device
 			Channels:      1,
 			FrameDuration: 60,
 		},
-		DeviceInfo: &WebSocketDeviceInfo{
+		DeviceInfoRequest: &WebSocketDeviceInfo{
 			Device: &model.Device{
 				MAC: device.MacAddress,
 			},
@@ -434,7 +434,7 @@ func testWebSocketHello(authResp AuthResponse, state *WebSocketTestState, device
 		Time: time.Now().Unix(),
 	}
 
-	logger.Debugf("helloMsg: %v", helloMsg.DeviceInfo.Device.MAC)
+	logger.Debugf("helloMsg: %v", helloMsg.DeviceInfoRequest.Device.MAC)
 	// 发送hello消息
 	if err := sendWebSocketMessage(state, helloMsg); err != nil {
 		return "", fmt.Errorf("发送hello消息失败: %v", err)
@@ -452,7 +452,7 @@ func testWebSocketHello(authResp AuthResponse, state *WebSocketTestState, device
 }
 
 // 连接WebSocket
-func connectWebSocket(authResp AuthResponse, state *WebSocketTestState, device DeviceInfo) error {
+func connectWebSocket(authResp AuthResponse, state *WebSocketTestState, device DeviceInfoRequest) error {
 	// 构建WebSocket URL
 	wsURL := authResp.WebSocket.URL
 	if wsURL == "" {
@@ -681,7 +681,7 @@ func sendWebAudioData(state *WebSocketTestState, audioData []byte) error {
 }
 
 // WebSocket IoT消息测试
-func testWebSocketIoT(state *WebSocketTestState, device DeviceInfo) error {
+func testWebSocketIoT(state *WebSocketTestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送WebSocket IoT消息...", device.MacAddress)
 
 	// 发送IoT消息
@@ -752,7 +752,7 @@ func testWebSocketIoT(state *WebSocketTestState, device DeviceInfo) error {
 }
 
 // WebSocket listen start消息测试
-func testWebSocketListenStart(state *WebSocketTestState, device DeviceInfo) error {
+func testWebSocketListenStart(state *WebSocketTestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送WebSocket listen start消息...", device.MacAddress)
 
 	listenMsg := &WebSocketMessagePayload{
@@ -838,7 +838,7 @@ func (s *WebSocketTestState) buildWebSocketAudioPacket(audioData []byte) (*WebSo
 }
 
 // WebSocket listen stop消息测试
-func testWebSocketListenStop(state *WebSocketTestState, device DeviceInfo) error {
+func testWebSocketListenStop(state *WebSocketTestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送WebSocket listen stop消息...", device.MacAddress)
 
 	listenMsg := &WebSocketMessagePayload{
@@ -858,7 +858,7 @@ func testWebSocketListenStop(state *WebSocketTestState, device DeviceInfo) error
 }
 
 // WebSocket文本消息测试
-func testWebSocketText(state *WebSocketTestState, device DeviceInfo) error {
+func testWebSocketText(state *WebSocketTestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送WebSocket文本消息...", device.MacAddress)
 
 	textMsg := &WebSocketMessagePayload{
@@ -879,7 +879,7 @@ func testWebSocketText(state *WebSocketTestState, device DeviceInfo) error {
 }
 
 // WebSocket goodbye测试
-func testWebSocketGoodbye(state *WebSocketTestState, device DeviceInfo) error {
+func testWebSocketGoodbye(state *WebSocketTestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送WebSocket goodbye消息...", device.MacAddress)
 
 	goodbyeMsg := &WebSocketMessagePayload{
@@ -901,6 +901,14 @@ func testWebSocketGoodbye(state *WebSocketTestState, device DeviceInfo) error {
 // 清理WebSocket资源
 func cleanupWebSocket(state *WebSocketTestState) {
 	logger.Info("清理WebSocket资源...")
+
+	// 发送关闭信号，结束WebSocket消息接收协程
+	select {
+	case state.CloseSignal <- struct{}{}:
+		logger.Infof("设备 %s 发送关闭信号，结束WebSocket消息接收协程", state.DeviceMAC)
+	default:
+		logger.Debugf("设备 %s CloseSignal通道已满，跳过发送", state.DeviceMAC)
+	}
 
 	if state.WebSocketConn != nil {
 		state.WebSocketConn.Close()
@@ -1047,7 +1055,7 @@ func RunWebSocketContinuousDialogueTest() {
 }
 
 // 单个设备WebSocket连续对话测试
-func runSingleDeviceWebSocketContinuousDialogue(device DeviceInfo, wg *sync.WaitGroup) {
+func runSingleDeviceWebSocketContinuousDialogue(device DeviceInfoRequest, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	result := ContinuousDialogueResult{
@@ -1161,7 +1169,7 @@ func runSingleDeviceWebSocketContinuousDialogue(device DeviceInfo, wg *sync.Wait
 }
 
 // 执行WebSocket单轮对话
-func executeWebSocketDialogueRound(state *WebSocketContinuousDialogueState, device DeviceInfo, roundNumber int) DialogueRoundResult {
+func executeWebSocketDialogueRound(state *WebSocketContinuousDialogueState, device DeviceInfoRequest, roundNumber int) DialogueRoundResult {
 	roundResult := DialogueRoundResult{
 		RoundNumber: roundNumber,
 		StartTime:   time.Now(),
@@ -1318,7 +1326,7 @@ func executeWebSocketDialogueRound(state *WebSocketContinuousDialogueState, devi
 }
 
 // WebSocket save_audio消息测试
-func testWebSocketSaveAudio(state *WebSocketTestState, device DeviceInfo) error {
+func testWebSocketSaveAudio(state *WebSocketTestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送WebSocket save_audio消息...", device.MacAddress)
 
 	saveAudioMsg := &WebSocketMessagePayload{
