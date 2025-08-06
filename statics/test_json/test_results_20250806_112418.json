@@ -1,0 +1,38 @@
+[
+  {
+    "device_mac": "bb:51:db:72:70:00",
+    "session_id": "8c47f0c290",
+    "start_time": "2025-08-06T11:23:20.264064+08:00",
+    "end_time": "2025-08-06T11:24:05.38986+08:00",
+    "duration": 45126233417,
+    "auth_time": 240877625,
+    "hello_time": 1138178917,
+    "iot_time": 58597791,
+    "listen_time": 1616584500,
+    "audio_time": 1053466833,
+    "text_time": 1027400042,
+    "goodbye_time": 26021181667,
+    "audio_packets": 0,
+    "text_messages": 0,
+    "success": true,
+    "error_message": ""
+  },
+  {
+    "device_mac": "bb:51:db:72:70:01",
+    "session_id": "5553888110",
+    "start_time": "2025-08-06T11:23:20.365142+08:00",
+    "end_time": "2025-08-06T11:24:18.197737+08:00",
+    "duration": 57833154917,
+    "auth_time": 144971958,
+    "hello_time": 1123051750,
+    "iot_time": 59344833,
+    "listen_time": 14433853875,
+    "audio_time": 13860258208,
+    "text_time": 1026407500,
+    "goodbye_time": 26023633959,
+    "audio_packets": 0,
+    "text_messages": 0,
+    "success": true,
+    "error_message": ""
+  }
+]
