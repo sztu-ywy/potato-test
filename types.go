@@ -3,8 +3,8 @@ package main
 import "git.uozi.org/uozi/potato-api/model"
 
 // 设备上报 ota 服务器
-type DeviceInfo struct {
-	Version             string      `json:"version"`
+type DeviceInfoRequest struct {
+	Version             int         `json:"version"`
 	Language            string      `json:"language"`
 	FlashSize           int         `json:"flash_size"`
 	MinimumFreeHeapSize int         `json:"minimum_free_heap_size"`
@@ -110,18 +110,18 @@ type MqttMessagePayload struct {
 	SessionID   string       `json:"session_id,omitempty"`
 	Nonce       string       `json:"nonce,omitempty"`
 
-	DeviceInfo *DeviceInfo `json:"device_info,omitempty"`
-	State      string      `json:"state,omitempty"`
-	Mode       string      `json:"mode,omitempty"`
-	Reason     string      `json:"reason,omitempty"`
-	Text       string      `json:"text,omitempty"`
-	Emotion    string      `json:"emotion,omitempty"`
-	Commands   []*Command  `json:"commands,omitempty"`
-	Time       int64       `json:"time,omitempty"`
-	OTA        *model.OTA  `json:"ota,omitempty"`
-	States     []*States   `json:"states,omitempty"`
-	Update     bool        `json:"update"`
-	StatusCode int         `json:"status_code"`
+	DeviceInfo *DeviceInfoRequest `json:"device_info,omitempty"`
+	State      string             `json:"state,omitempty"`
+	Mode       string             `json:"mode,omitempty"`
+	Reason     string             `json:"reason,omitempty"`
+	Text       string             `json:"text,omitempty"`
+	Emotion    string             `json:"emotion,omitempty"`
+	Commands   []*Command         `json:"commands,omitempty"`
+	Time       int64              `json:"time,omitempty"`
+	OTA        *model.OTA         `json:"ota,omitempty"`
+	States     []*States          `json:"states,omitempty"`
+	Update     bool               `json:"update"`
+	StatusCode int                `json:"status_code"`
 }
 
 type AudioParams struct {
