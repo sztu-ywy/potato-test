@@ -122,7 +122,7 @@ func runSingleDeviceContinuousDialogue(device DeviceInfoRequest, wg *sync.WaitGr
 			Sequence:           1,
 			ReceivedText:       make([]string, 0),
 			ReceivedAudio:      make([]int, 0),
-			CommonPushTopic:    "device-server",
+			CommonPushTopic:    "",
 			SubServerTopic:     GetServerTopic(device.MacAddress),
 			AcceptAudioPacket:  &AudioPacket{},
 			MQTT:               MQTT{},

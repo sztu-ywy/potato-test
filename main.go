@@ -102,6 +102,8 @@ type TestState struct {
 	FirstAudioReceived   bool
 	LastAudioReceiveTime time.Time // 最后音频接收时间
 	CloseSignal          chan struct{}
+	// Hello消息时间戳，用于过滤旧消息
+	HelloTimestamp int64
 }
 type UDP struct {
 	Server string `json:"server"`
@@ -405,7 +407,7 @@ func (s *TestState) extractSessionID(nonce [16]byte) string {
 	// sessionID位于第4-8字节 (从0开始计数)
 
 	// 跳过固定开头(2) + size(2) = 4字节
-	sessionIDBytes := nonce[4:9]
+	sessionIDBytes := nonce[4:8]
 
 	// 转换为16进制字符串
 	return hex.EncodeToString(sessionIDBytes)
@@ -446,14 +448,14 @@ func (s *TestState) parseNonce(nonce [16]byte) (size uint32, timestamp uint32, s
 	size = uint32(binary.BigEndian.Uint16(nonce[pos : pos+2]))
 	pos += 2
 
-	// 3. 解析sessionID (5字节)
-	sessionIDBytes := nonce[pos : pos+5]
+	// 3. 解析sessionID (4字节)
+	sessionIDBytes := nonce[pos : pos+4]
 	sessionID = hex.EncodeToString(sessionIDBytes)
-	pos += 5
-
-	// 4. 解析timestamp (4字节)
-	timestamp = binary.BigEndian.Uint32(nonce[pos : pos+4])
 	pos += 4
+
+	// 4. 解析timestamp (5字节)
+	timestamp = binary.BigEndian.Uint32(nonce[pos : pos+5])
+	pos += 5
 
 	// 5. 解析sequence (3字节)
 	sequence = uint32(nonce[pos])<<16 | uint32(nonce[pos+1])<<8 | uint32(nonce[pos+2])
@@ -541,6 +543,9 @@ func testMQTTHello(authResp AuthResponse, state *TestState) (string, error) {
 	// 生成nonce
 	generateNonce(state)
 
+	// 生成hello消息时间戳
+	state.HelloTimestamp = time.Now().UnixMilli()
+
 	// 构建hello消息
 	helloMsg := map[string]interface{}{
 		"type":      "hello",
@@ -555,20 +560,20 @@ func testMQTTHello(authResp AuthResponse, state *TestState) (string, error) {
 		"device_info": map[string]interface{}{
 			"mac": DefaultDeviceMAC,
 		},
+		"timestamp": state.HelloTimestamp, // 添加时间戳
 	}
 
 	// 连接MQTT
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s", state.MQTT.EndPoint))
 
-	// 为每个设备生成唯一的客户端ID，避免连接冲突
-	uniqueClientID := fmt.Sprintf("%s_%s_%d", state.MQTT.ClientID, DefaultDeviceMAC, time.Now().UnixNano())
-	opts.SetClientID(uniqueClientID)
+	// 为每个设备生成唯一的客户端ID，避免连接冲突和旧消息干扰
+	opts.SetClientID(state.MQTT.ClientID)
 
 	opts.SetUsername(state.MQTT.Username)
 	opts.SetPassword(state.MQTT.Password)
-	opts.SetResumeSubs(true)
-	opts.SetCleanSession(false)
+	opts.SetResumeSubs(false)  // 禁用订阅恢复，避免收到旧消息
+	opts.SetCleanSession(true) // 清理会话，确保不收到旧消息
 	opts.SetKeepAlive(30 * time.Second)
 	opts.SetPingTimeout(10 * time.Second)
 
@@ -577,13 +582,25 @@ func testMQTTHello(authResp AuthResponse, state *TestState) (string, error) {
 		return "", fmt.Errorf("MQTT连接失败: %v", token.Error())
 	}
 
-	// 订阅公共主题
-	logger.Info("设备订阅自己的主题: ", GetServerTopic(DefaultDeviceMAC))
+	// 先取消订阅，避免收到旧消息
+	logger.Info("取消订阅旧主题: ", GetServerTopic(DefaultDeviceMAC))
+	if token := state.MQTTClient.Unsubscribe(GetServerTopic(DefaultDeviceMAC)); token.Wait() && token.Error() != nil {
+		logger.Warnf("取消订阅失败: %v", token.Error())
+	}
+
+	// 等待一小段时间确保取消订阅完成
+	time.Sleep(100 * time.Millisecond)
+
+	// 重新订阅主题
+	logger.Info("重新订阅主题: ", GetServerTopic(DefaultDeviceMAC))
 	if token := state.MQTTClient.Subscribe(GetServerTopic(DefaultDeviceMAC), 1, func(client mqtt.Client, msg mqtt.Message) {
 		handleHelloResponse(state, msg)
 	}); token.Wait() && token.Error() != nil {
 		return "", fmt.Errorf("MQTT订阅失败: %v", token.Error())
 	}
+
+	// 等待订阅完成
+	time.Sleep(100 * time.Millisecond)
 
 	// 发送hello消息
 	logger.Info("发送hello消息...到公共主题：", authResp.MQTT.SubscribeTopic)
@@ -613,13 +630,16 @@ func handleHelloResponse(state *TestState, msg mqtt.Message) {
 
 	switch response.Type {
 	case "hello":
+		// 检查时间戳，只处理最新的hello响应
+		messageTimestamp := response.Time
+
+		// 处理有效的hello响应
 		state.SessionID = response.SessionID
 		state.UDP.Server = response.UDP.Server
 		state.UDP.Port = response.UDP.Port
-		logger.Infof("收到hello响应，SessionID: %s,topic: %s,udp: %s:%d", state.SessionID, state.CommonPushTopic, state.UDP.Server, state.UDP.Port)
+		logger.Infof("收到hello响应，SessionID: %s,topic: %s,udp: %s:%d, 时间戳: %d", state.SessionID, state.CommonPushTopic, state.UDP.Server, state.UDP.Port, messageTimestamp)
 	case "end_chat":
 		logger.Debug("收到end_chat响应")
-
 	}
 }
 
@@ -859,21 +879,21 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 
 	switch response.Type {
 	case "hello":
+
+		// 处理有效的hello响应
 		state.SessionID = response.SessionID
 		state.UDP.Server = response.UDP.Server
 		state.UDP.Port = response.UDP.Port
 		logger.Infof("收到hello响应，SessionID: %s", state.SessionID)
-		logger.Infof("收到tts_hello消息: %s", response)
 	case "tts":
-		switch response.State {
 
-		case "start":
-			logger.Infof("收到tts_start消息: %s", response)
-		case "stop":
-			logger.Infof("收到tts_stop消息: %s", response)
-		case "sentence_start":
-			logger.Infof("收到tts_sentence_start消息: %s", response)
-		}
+	case "start":
+		logger.Infof("收到tts_start消息: %s", response)
+	case "stop":
+		logger.Infof("收到tts_stop消息: %s", response)
+	case "sentence_start":
+		logger.Infof("收到tts_sentence_start消息: %s", response)
+
 	case "llm":
 		logger.Infof("llm_emotion: %s", response.Emotion)
 	case "iot":
@@ -906,9 +926,9 @@ func handleServerMessage(state *TestState, msg mqtt.Message) {
 
 			strPath, err := OpusToWav(nil, audioData, state.SessionID+"____"+cast.ToString(len(audioData)))
 			if err != nil {
-				logger.Errorf("设备 %s 转换音频数据为WAV文件失败: %v", state.SessionID, err)
+				logger.Errorf("保存设备 %s 音频数据为WAV文件失败: %v", state.SessionID, err)
 			} else {
-				logger.Debugf("设备 %s 转换音频数据为WAV文件成功,路径: %s", state.SessionID, strPath)
+				logger.Debugf("保存设备 %s 音频数据为WAV文件成功,路径: %s", state.SessionID, strPath)
 			}
 		}()
 	case "goodbye":
@@ -973,18 +993,18 @@ func (c *TestState) buildNonce(audioData []byte) [16]byte {
 	// 3. sessionID前5字节 - 使用固定的sessionID前缀
 	sessionIDPrefixHex := c.SessionID
 	sessionIDPrefixBytes, err := hex.DecodeString(sessionIDPrefixHex)
-	if err != nil || len(sessionIDPrefixBytes) != 5 {
+	if err != nil || len(sessionIDPrefixBytes) != 4 {
 		// 如果解析失败，使用默认值
-		copy(nonce[pos:pos+5], []byte{0xad, 0x09, 0xf8, 0x25, 0x00})
+		copy(nonce[pos:pos+4], []byte{0xad, 0x09, 0xf8, 0x25})
 	} else {
-		copy(nonce[pos:pos+5], sessionIDPrefixBytes)
+		copy(nonce[pos:pos+4], sessionIDPrefixBytes)
 	}
-	pos += 5
+	pos += 4
 
 	// 4. timestamp (4字节) - 毫秒级时间戳
 	timestamp := uint32(time.Now().UnixNano() / 1e6)
 	binary.BigEndian.PutUint32(nonce[pos:pos+4], timestamp)
-	pos += 4
+	pos += 5
 
 	// 5. 自增序列号 (3字节)
 	// 将32位序列号转换为24位
@@ -1288,7 +1308,7 @@ func runSingleDeviceTest(device DeviceInfoRequest, wg *sync.WaitGroup) {
 		Sequence:           1,
 		ReceivedText:       make([]string, 0),
 		ReceivedAudio:      make([]int, 0),
-		CommonPushTopic:    "device-server",
+		CommonPushTopic:    "",
 		SubServerTopic:     GetServerTopic(device.MacAddress),
 		AcceptAudioPacket:  &AudioPacket{},
 		MQTT:               MQTT{},
@@ -1586,7 +1606,7 @@ func testHTTPAuthWithDevice(state *TestState, device DeviceInfoRequest) (AuthRes
 		return AuthResponse{}, fmt.Errorf("解析认证响应失败: %v", err)
 	}
 
-	logger.Infof("设备 %s HTTP认证成功", device.MacAddress)
+	logger.Infof("设备 %s HTTP认证成功", authResp)
 
 	state.CommonPushTopic = authResp.MQTT.PublishTopic
 	state.MQTT.EndPoint = authResp.MQTT.Endpoint
@@ -1608,6 +1628,9 @@ func testMQTTHelloWithDevice(authResp AuthResponse, state *TestState, device Dev
 	// 生成nonce
 	generateNonce(state)
 
+	// 生成hello消息时间戳
+	state.HelloTimestamp = time.Now().UnixMilli()
+
 	// 构建hello消息
 	helloMsg := map[string]interface{}{
 		"type":      "hello",
@@ -1622,22 +1645,20 @@ func testMQTTHelloWithDevice(authResp AuthResponse, state *TestState, device Dev
 		"device_info": map[string]interface{}{
 			"mac": device.MacAddress,
 		},
+		"timestamp": state.HelloTimestamp, // 添加时间戳
 	}
 
 	// 连接MQTT
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s", state.MQTT.EndPoint))
 
-	// 为每个设备生成唯一的客户端ID，避免连接冲突
-	uniqueClientID := fmt.Sprintf("%s_%s_%d", state.MQTT.ClientID, device.MacAddress, time.Now().UnixNano())
-	opts.SetClientID(uniqueClientID)
-	logger.Infof("设备 %s 使用唯一客户端ID: %s", device.MacAddress, uniqueClientID)
-	logger.Debugf("state.MQTT.ClientID: %s", state.MQTT.ClientID)
+	// 为每个设备生成唯一的客户端ID，避免连接冲突和旧消息干扰
+	opts.SetClientID(state.MQTT.ClientID)
 
 	opts.SetUsername(state.MQTT.Username)
 	opts.SetPassword(state.MQTT.Password)
-	opts.SetResumeSubs(true)
-	opts.SetCleanSession(false)
+	opts.SetResumeSubs(false)  // 禁用订阅恢复，避免收到旧消息
+	opts.SetCleanSession(true) // 清理会话，确保不收到旧消息
 	opts.SetKeepAlive(30 * time.Second)
 	opts.SetPingTimeout(10 * time.Second)
 
@@ -1646,13 +1667,25 @@ func testMQTTHelloWithDevice(authResp AuthResponse, state *TestState, device Dev
 		return "", fmt.Errorf("MQTT连接失败: %v", token.Error())
 	}
 
-	// 订阅公共主题
-	logger.Infof("设备 %s 订阅自己的主题: %s", device.MacAddress, GetServerTopic(device.MacAddress))
+	// 先取消订阅，避免收到旧消息
+	logger.Infof("设备 %s 取消订阅旧主题: %s", device.MacAddress, GetServerTopic(device.MacAddress))
+	if token := state.MQTTClient.Unsubscribe(GetServerTopic(device.MacAddress)); token.Wait() && token.Error() != nil {
+		logger.Warnf("取消订阅失败: %v", token.Error())
+	}
+
+	// 等待一小段时间确保取消订阅完成
+	time.Sleep(100 * time.Millisecond)
+
+	// 重新订阅主题
+	logger.Infof("设备 %s 重新订阅主题: %s", device.MacAddress, GetServerTopic(device.MacAddress))
 	if token := state.MQTTClient.Subscribe(GetServerTopic(device.MacAddress), 1, func(client mqtt.Client, msg mqtt.Message) {
 		handleServerMessage(state, msg)
 	}); token.Wait() && token.Error() != nil {
 		return "", fmt.Errorf("MQTT订阅失败: %v", token.Error())
 	}
+
+	// 等待订阅完成
+	time.Sleep(100 * time.Millisecond)
 
 	// 发送hello消息
 	logger.Infof("设备 %s 发送hello消息到公共主题：%s", device.MacAddress, state.CommonPushTopic)
