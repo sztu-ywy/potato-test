@@ -25,27 +25,12 @@ import (
 	"layeh.com/gopus"
 )
 
-/*
-
-uint64=1754025095011
- int64=1754025095055
-wait  uint64=2139
-
-
-uint64=1754025095376
- int64=1754025095403
-
-*/
 // 并发测试配置
 const (
 
 	// 服务器配置
 	ServerHost = "aiotcomm.com.cn"
-	ServerPort = 50202
-	MQTTHost   = "10.14.2.54"
-	MQTTPort   = 1883
-	UDPHost    = "2huo.tech"
-	UDPPort    = 50400
+	ServerPort = 50222
 
 	// 默认设备配置
 	DefaultDeviceMAC  = "10:51:db:72:70:a8"
@@ -65,7 +50,7 @@ const (
 
 // 设备配置结构
 type DeviceConfig struct {
-	Devices []DeviceInfo `json:"devices"`
+	Devices []DeviceInfoRequest `json:"devices"`
 }
 
 // 测试结果统计
@@ -144,18 +129,6 @@ const (
 	WaitForEndTime     = 20 // 等待文本消息响应的时间（秒）
 )
 
-// func main() {
-// 	for i := 0; i < 10000; i++ {
-// 		mac := fmt.Sprintf("bb:51:db:72:70:%02x", i)
-// 		hashMAC := HashMAC(mac)
-// 		logger.Debugf("hashMAC: %v", hashMAC)
-// 		logger.Debugf("mac: %v", mac)
-// 	}
-// }
-
-// 集成测试主函数
-// func TestIntegration(t *testing.T) {
-// 并发测试用例数量
 var ConcurrentTestCount = 2
 
 // 连续对话次数
@@ -164,12 +137,12 @@ var ContinuousDialogueCount = 2
 var WaitForSendAudioTime = 0 * time.Second
 
 func main() {
-	logger.Info("请选择测试类型:")
-	logger.Info("1. MQTT并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
-	logger.Info("2. MQTT连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
-	logger.Info("3. WebSocket并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
-	logger.Info("4. WebSocket连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
-	logger.Info("请输入选择 (1, 2, 3 或 4):")
+	fmt.Println("请选择测试类型:")
+	fmt.Println("1. MQTT并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
+	fmt.Println("	2. MQTT连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
+	fmt.Println("		3. WebSocket并发集成测试(只会提问一轮),当前并发数量: ", ConcurrentTestCount)
+	fmt.Println("			4. WebSocket连续对话测试(多轮提问+并发),当前连续对话次数: ", ContinuousDialogueCount)
+	fmt.Println("请输入选择 (1, 2, 3, 4 ):")
 
 	var choice string
 	fmt.Scanln(&choice)
@@ -493,8 +466,8 @@ func testHTTPAuth(state *TestState) (AuthResponse, error) {
 	logger.Info("1. 开始HTTP认证...")
 
 	// 构建认证请求
-	authReq := DeviceInfo{
-		Version:             "2",
+	authReq := DeviceInfoRequest{
+		Version:             2,
 		Language:            "zh-CN",
 		FlashSize:           16777216,
 		MinimumFreeHeapSize: 8441000,
@@ -523,6 +496,7 @@ func testHTTPAuth(state *TestState) (AuthResponse, error) {
 	if err != nil {
 		return AuthResponse{}, fmt.Errorf("序列化认证请求失败: %v", err)
 	}
+	logger.Debug("url:", fmt.Sprintf("http://%s:%d/devices/auth", ServerHost, ServerPort))
 
 	resp, err := http.Post(
 		fmt.Sprintf("http://%s:%d/devices/auth", ServerHost, ServerPort),
@@ -1159,10 +1133,6 @@ func ConvertWavToOpus(wavPath string, config AudioConfig) ([][]byte, error) {
 	}
 	// logger.Debug("bufInt16", bufInt16)
 	numFrames := len(bufInt16) / frameSize
-	// logger.Debug("len(buf.Data)", len(bufInt16))
-	// logger.Debug("numFrames", numFrames)
-
-	// logger.Debug("frameSize", frameSize)
 
 	for i := 0; i < numFrames; i++ {
 		frame := bufInt16[i*frameSize : (i+1)*frameSize]
@@ -1214,13 +1184,13 @@ func GetServerTopic(mac string) string {
 
 // 生成设备配置文件
 func generateDeviceConfig() error {
-	devices := []DeviceInfo{}
+	devices := []DeviceInfoRequest{}
 
 	// 生成多个设备配置
 	for i := 0; i < ConcurrentTestCount; i++ {
 		logger.Debugf("ConcurrentTestCount: %d", i)
-		device := DeviceInfo{
-			Version:             "2",
+		device := DeviceInfoRequest{
+			Version:             2,
 			Language:            "zh-CN",
 			FlashSize:           16777216,
 			MinimumFreeHeapSize: 8441000,
@@ -1264,7 +1234,7 @@ func generateDeviceConfig() error {
 }
 
 // 读取设备配置
-func loadDeviceConfig() ([]DeviceInfo, error) {
+func loadDeviceConfig() ([]DeviceInfoRequest, error) {
 	data, err := os.ReadFile(DeviceConfigFile)
 	if err != nil {
 		return nil, fmt.Errorf("读取设备配置文件失败: %v", err)
@@ -1287,40 +1257,6 @@ func getRandomWavFile() string {
 		"./可以说话.wav",
 		"./你能教我说日语吗.wav",
 		"./你是谁.wav",
-		// "./statics/audio/asr_06551d0d44_.wav",
-		// "./statics/audio/asr_09b2c5973c_.wav",
-		// "./statics/audio/asr_1857e90cc3_.wav",
-		// "./statics/audio/asr_1aabfe0625_.wav",
-		// "./statics/audio/asr_1e55e39e43_.wav",
-		// "./statics/audio/asr_2050b9a04f_.wav",
-		// "./statics/audio/asr_2bbf9c75dd_.wav",
-		// "./statics/audio/asr_37fb96a647_.wav",
-		// "./statics/audio/asr_43d9c8bbe6_.wav",
-		// "./statics/audio/asr_470d4f1fab_.wav",
-		// "./statics/audio/asr_4b7ddf5564_.wav",
-		// "./statics/audio/asr_4d36deb6d9_.wav",
-		// "./statics/audio/asr_50ca81e029_.wav",
-		// "./statics/audio/asr_55bb6daefd_.wav",
-		// "./statics/audio/asr_5961bb4a71_.wav",
-		// "./statics/audio/asr_6b4c8a165c_.wav",
-		// "./statics/audio/asr_6ba58036c4_.wav",
-		// "./statics/audio/asr_6e325af99c_.wav",
-		// "./statics/audio/asr_72c53299b4_.wav",
-		// "./statics/audio/asr_8e7b25a1c1_.wav",
-		// "./statics/audio/asr_91e1200522_.wav",
-		// "./statics/audio/asr_976efdc744_.wav",
-		// "./statics/audio/asr_97a4e7d8e9_.wav",
-		// "./statics/audio/asr_b03b656bb7_.wav",
-		// "./statics/audio/asr_c4ec94f136_.wav",
-		// "./statics/audio/asr_ca13a7471a_.wav",
-		// "./statics/audio/asr_d103655760_.wav",
-		// "./statics/audio/asr_dc2d0534e3_.wav",
-		// "./statics/audio/asr_dce41cdb03_.wav",
-		// "./statics/audio/asr_dfc325e9bb_.wav",
-		// "./statics/audio/asr_e02e29c179_.wav",
-		// "./statics/audio/asr_eb7816c629_.wav",
-		// "./statics/audio/asr_ef72e42ad3_.wav",
-		// "./statics/audio/asr_f8de0d7214_.wav",
 	}
 
 	// 随机选择一个文件
@@ -1336,7 +1272,7 @@ func getRandomWavFile() string {
 }
 
 // 单个设备测试函数
-func runSingleDeviceTest(device DeviceInfo, wg *sync.WaitGroup) {
+func runSingleDeviceTest(device DeviceInfoRequest, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	result := TestResult{
@@ -1472,9 +1408,36 @@ func runSingleDeviceTest(device DeviceInfo, wg *sync.WaitGroup) {
 	}
 	result.TextTime = time.Since(textStart)
 
-	// 9. 发送goodbye消息
+	// 9. 等待接收音频并发送save_audio消息
+	logger.Infof("设备 %s 开始等待音频接收...", device.MacAddress)
+
+	// 等待一段时间让音频接收完成
+	time.Sleep(10 * time.Second)
+
+	// 检查是否收到音频数据
+	state.AudioFramesMutex.Lock()
+	audioCount := len(state.AudioFrames)
+	state.AudioFramesMutex.Unlock()
+
+	if audioCount > 0 {
+		logger.Infof("设备 %s 收到 %d 个音频包，准备发送save_audio消息", device.MacAddress, audioCount)
+
+		// 发送save_audio消息
+		if err := testMQTTSaveAudioWithDevice(state, device); err != nil {
+			logger.Errorf("设备 %s 发送save_audio消息失败: %v", device.MacAddress, err)
+		} else {
+			logger.Infof("设备 %s 发送save_audio消息成功", device.MacAddress)
+		}
+
+		// 等待save_audio响应处理完成
+		time.Sleep(5 * time.Second)
+	} else {
+		logger.Warnf("设备 %s 没有收到音频数据，跳过save_audio消息", device.MacAddress)
+	}
+
+	// 10. 发送goodbye消息
 	goodbyeStart := time.Now()
-	time.Sleep(15 * time.Second)
+	time.Sleep(5 * time.Second)
 	if err := testMQTTGoodbyeWithDevice(state, device); err != nil {
 		logger.Errorf("设备 %s MQTT goodbye失败: %v", device.MacAddress, err)
 	}
@@ -1592,7 +1555,7 @@ func saveDetailedResults() {
 }
 
 // 带设备的HTTP认证测试
-func testHTTPAuthWithDevice(state *TestState, device DeviceInfo) (AuthResponse, error) {
+func testHTTPAuthWithDevice(state *TestState, device DeviceInfoRequest) (AuthResponse, error) {
 	logger.Infof("设备 %s 开始HTTP认证...", device.MacAddress)
 
 	// 发送HTTP请求
@@ -1601,14 +1564,16 @@ func testHTTPAuthWithDevice(state *TestState, device DeviceInfo) (AuthResponse, 
 		return AuthResponse{}, fmt.Errorf("序列化认证请求失败: %v", err)
 	}
 
+	url := fmt.Sprintf("http://%s:%d/devices/auth", ServerHost, ServerPort)
 	resp, err := http.Post(
-		fmt.Sprintf("http://%s:%d/devices/auth", ServerHost, ServerPort),
+		url,
 		"application/json",
 		strings.NewReader(string(jsonData)),
 	)
 	if err != nil {
 		return AuthResponse{}, fmt.Errorf("HTTP请求失败: %v", err)
 	}
+	logger.Debug("url:", url)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -1634,7 +1599,7 @@ func testHTTPAuthWithDevice(state *TestState, device DeviceInfo) (AuthResponse, 
 }
 
 // 带设备的MQTT hello握手测试
-func testMQTTHelloWithDevice(authResp AuthResponse, state *TestState, device DeviceInfo) (string, error) {
+func testMQTTHelloWithDevice(authResp AuthResponse, state *TestState, device DeviceInfoRequest) (string, error) {
 	logger.Infof("设备 %s 开始MQTT hello握手...", device.MacAddress)
 
 	// 生成sessionID
@@ -1708,7 +1673,7 @@ func testMQTTHelloWithDevice(authResp AuthResponse, state *TestState, device Dev
 }
 
 // 带设备的MQTT IoT消息测试
-func testMQTTIoTWithDevice(state *TestState, device DeviceInfo) error {
+func testMQTTIoTWithDevice(state *TestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送MQTT IoT消息...", device.MacAddress)
 
 	// 检查MQTT连接状态
@@ -1792,7 +1757,7 @@ func testMQTTIoTWithDevice(state *TestState, device DeviceInfo) error {
 }
 
 // 带设备的MQTT listen start消息测试
-func testMQQTTListenStartWithDevice(state *TestState, device DeviceInfo) error {
+func testMQQTTListenStartWithDevice(state *TestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送MQTT listen start消息...", device.MacAddress)
 
 	listenMsg := map[string]interface{}{
@@ -1812,7 +1777,7 @@ func testMQQTTListenStartWithDevice(state *TestState, device DeviceInfo) error {
 }
 
 // 带设备的MQTT listen stop消息测试
-func testMQQTTListenStopWithDevice(state *TestState, device DeviceInfo) error {
+func testMQQTTListenStopWithDevice(state *TestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送MQTT listen stop消息...", device.MacAddress)
 
 	listenMsg := &MqttMessagePayload{
@@ -1879,7 +1844,7 @@ func testUDPAudioWithFile(state *TestState, wavFile string) error {
 }
 
 // 带设备的MQTT文本消息测试
-func testMQTTTextWithDevice(state *TestState, device DeviceInfo) error {
+func testMQTTTextWithDevice(state *TestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s 发送MQTT文本消息...", device.MacAddress)
 
 	textMsg := map[string]interface{}{
@@ -1902,7 +1867,7 @@ func testMQTTTextWithDevice(state *TestState, device DeviceInfo) error {
 }
 
 // 带设备的MQTT goodbye测试
-func testMQTTGoodbyeWithDevice(state *TestState, device DeviceInfo) error {
+func testMQTTGoodbyeWithDevice(state *TestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s topic: %s 发送MQTT goodbye消息...", device.MacAddress, state.CommonPushTopic)
 	// TODO：不发goodbye 的话，可以测试服务端内存泄漏情况
 
@@ -1924,7 +1889,7 @@ func testMQTTGoodbyeWithDevice(state *TestState, device DeviceInfo) error {
 }
 
 // 带设备的MQTT save_audio消息测试
-func testMQTTSaveAudioWithDevice(state *TestState, device DeviceInfo) error {
+func testMQTTSaveAudioWithDevice(state *TestState, device DeviceInfoRequest) error {
 	logger.Infof("设备 %s topic: %s 发送MQTT save_audio消息...", device.MacAddress, state.CommonPushTopic)
 
 	saveAudioMsg := &MqttMessagePayload{

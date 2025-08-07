@@ -104,7 +104,7 @@ func runContinuousDialogueTest() {
 }
 
 // 单个设备连续对话测试
-func runSingleDeviceContinuousDialogue(device DeviceInfo, wg *sync.WaitGroup) {
+func runSingleDeviceContinuousDialogue(device DeviceInfoRequest, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	result := ContinuousDialogueResult{
@@ -225,7 +225,7 @@ func runSingleDeviceContinuousDialogue(device DeviceInfo, wg *sync.WaitGroup) {
 }
 
 // 执行单轮对话
-func executeDialogueRound(state *ContinuousDialogueState, device DeviceInfo, roundNumber int) DialogueRoundResult {
+func executeDialogueRound(state *ContinuousDialogueState, device DeviceInfoRequest, roundNumber int) DialogueRoundResult {
 	roundResult := DialogueRoundResult{
 		RoundNumber: roundNumber,
 		StartTime:   time.Now(),
